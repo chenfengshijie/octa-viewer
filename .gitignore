@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node
+node_modules/
+frontend/dist/
+
+# 演示素材（prep_data.py 生成，见 README「数据准备」，不进 Git）
+backend/data/
+
+# 算法训练产物（权重/日志/数据集不进 Git，用网盘或 DVC 同步）
+algorithm/checkpoints/
+algorithm/runs/
+algorithm/data/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# IDE / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

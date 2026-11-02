@@ -1,0 +1,13 @@
+# VCS
+.git
+
+# dependencies / build artifacts（dist 在镜像内由 stage1 重新构建）
+**/node_modules
+**/dist
+
+# 数据集：宿主机 prep_data.py 生成，不进镜像
+backend/data
+
+# Python 缓存
+**/__pycache__
+*.pyc
