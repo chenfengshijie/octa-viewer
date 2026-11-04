@@ -25,3 +25,6 @@ algorithm/data/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# ZCode 工作区（会话计划等本地文件）
+.zcode/

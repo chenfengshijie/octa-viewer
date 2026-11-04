@@ -20,6 +20,7 @@ const WHEEL_SPEED = 0.0015; // 滚轮缩放灵敏度
  *   stageExtra?: import('react').ReactNode, // 与影像一同缩放平移的附加层（如边界曲线 canvas）
  *   hudExtra?: import('react').ReactNode,   // 不随缩放变化的浮动 HUD（如 enface 小地图）
  *   onBaseLoad?: (dims: {w: number, h: number}) => void, // 底图加载完成回调（返回原始像素尺寸）
+ *   paintMode?: boolean,    // 标注画笔激活：光标变十字（拖拽平移由 PaintLayer 自行接管）
  * }} props
  */
 export default function ImageViewer({
@@ -31,6 +32,7 @@ export default function ImageViewer({
   stageExtra,
   hudExtra,
   onBaseLoad,
+  paintMode = false,
 }) {
   const containerRef = useRef(null);
   const dragRef = useRef(null);
@@ -113,7 +115,11 @@ export default function ImageViewer({
     <div
       ref={containerRef}
       className={`relative h-full w-full select-none overflow-hidden rounded-xl bg-[#0b0f14] ${
-        interactive ? 'cursor-grab touch-none active:cursor-grabbing' : ''
+        paintMode
+          ? 'touch-none'
+          : interactive
+            ? 'cursor-grab touch-none active:cursor-grabbing'
+            : ''
       }`}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}

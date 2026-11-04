@@ -1,17 +1,27 @@
 import { useCallback, useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { Activity, Box, CircleDot, Eye, Home, Layers, RefreshCw, Waypoints } from 'lucide-react';
+import { Activity, Box, CircleDot, Eye, Home, Layers, LogIn, LogOut, RefreshCw, Waypoints } from 'lucide-react';
 import { fetchTasks } from '../api.js';
+import { useAuth } from '../auth.jsx';
+import AuthModal from './AuthModal.jsx';
 
 /** 任务 id → 侧边栏图标（未识别的任务回退为 Activity） */
 const TASK_ICONS = { vessel: Waypoints, faz: CircleDot, layers: Layers, faz3d: Box };
 
 /**
- * 全局布局：左侧固定导航（Logo + 首页 + 任务列表），右侧内容区（Outlet）。
+ * 全局布局：左侧固定导航（Logo + 首页 + 任务列表 + 用户区），右侧内容区（Outlet）。
  * 任务列表在此统一获取，并通过 Outlet context 传给子页面。
  */
 export default function Layout() {
+  const { user, logout } = useAuth();
   const [state, setState] = useState({ tasks: [], loading: true, error: null });
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authTab, setAuthTab] = useState('login');
+
+  const openAuth = tab => {
+    setAuthTab(tab);
+    setAuthOpen(true);
+  };
 
   const load = useCallback(() => {
     setState(prev => ({ ...prev, loading: true, error: null }));
@@ -55,6 +65,46 @@ export default function Layout() {
             })}
         </nav>
 
+        {/* 用户区 */}
+        <div className="border-t border-slate-100 p-3">
+          {user ? (
+            <div className="flex items-center gap-2.5 rounded-lg bg-slate-50 px-2.5 py-2">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">
+                {user.username.slice(0, 1).toUpperCase()}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-slate-700">{user.username}</p>
+                <p className="text-[10px] text-slate-400">已登录 · 可编辑标注</p>
+              </div>
+              <button
+                type="button"
+                onClick={logout}
+                title="退出登录"
+                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-600"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => openAuth('login')}
+                className="btn-primary h-8 flex-1 !px-2 text-xs"
+              >
+                <LogIn className="h-3.5 w-3.5" /> 登录
+              </button>
+              <button
+                type="button"
+                onClick={() => openAuth('register')}
+                className="h-8 flex-1 rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-600 shadow-sm transition hover:border-blue-300 hover:text-blue-600"
+              >
+                注册
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* 底部状态 */}
         <div className="border-t border-slate-100 px-4 py-3 text-[11px] leading-relaxed text-slate-400">
           {state.error ? (
@@ -77,6 +127,8 @@ export default function Layout() {
       <main className="ml-56 min-h-screen">
         <Outlet context={{ tasks: state.tasks, tasksLoading: state.loading, tasksError: state.error, reloadTasks: load }} />
       </main>
+
+      <AuthModal open={authOpen} initialTab={authTab} onClose={() => setAuthOpen(false)} />
     </div>
   );
 }

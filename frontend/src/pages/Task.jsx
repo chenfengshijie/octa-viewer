@@ -1,7 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useOutletContext, useParams } from 'react-router-dom';
 import { AlertCircle, RefreshCw, SearchX } from 'lucide-react';
-import { fetchModels, fetchSamples, runInference } from '../api.js';
+import {
+  deleteAnnotation,
+  fetchAnnotators,
+  fetchModels,
+  fetchMyAnnotation,
+  fetchSamples,
+  runInference,
+} from '../api.js';
+import { useAuth } from '../auth.jsx';
 import ModelSelect from '../components/ModelSelect.jsx';
 import SamplePicker from '../components/SamplePicker.jsx';
 import Faz3dView from '../components/views/Faz3dView.jsx';
@@ -14,11 +22,13 @@ const VIEWS = { vessel: VesselView, faz: FazView, layers: LayersView, faz3d: Faz
 
 /**
  * 任务页：顶栏（任务信息 + 样本/模型选择器）+ 主区（影像查看器 + 控制侧栏）。
- * 负责样本/模型数据获取与推理调度，具体展示按 taskId 分支到对应视图。
+ * 负责样本/模型数据获取与推理调度；并管理标注版本状态（查看谁的版本）：
+ * 登录用户保存过自己的版本时默认展示自己的版本，可切换原始 GT / 他人版本。
  */
 export default function Task() {
   const { taskId } = useParams();
   const { tasks, tasksLoading, tasksError, reloadTasks } = useOutletContext();
+  const { user } = useAuth();
   const task = tasks.find(t => t.id === taskId);
 
   const [samples, setSamples] = useState(null); // null = 加载中
@@ -29,6 +39,12 @@ export default function Task() {
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState(null);
   const [runId, setRunId] = useState(0); // 每次成功推理自增，驱动视图复位内部状态
+
+  // ---- 标注版本状态 ----
+  const [viewAs, setViewAs] = useState(''); // '' = 原始 GT，否则用户名
+  const [viewTouched, setViewTouched] = useState(false); // 用户手动切换过后不再自动改变
+  const [annotators, setAnnotators] = useState([]);
+  const [myVersion, setMyVersion] = useState(false);
 
   useEffect(() => {
     fetchSamples()
@@ -52,13 +68,52 @@ export default function Task() {
     }
   }, [models, model]);
 
-  /** 运行推理 */
-  const handleRun = async () => {
+  // 样本/任务/用户变化：刷新标注版本列表与「我是否有版本」（可编辑任务才有版本概念）
+  const editableTask = Boolean(VIEWS[taskId] && taskId !== 'layers');
+  useEffect(() => {
+    if (!sampleId || !editableTask) {
+      setAnnotators([]);
+      setMyVersion(false);
+      return undefined;
+    }
+    let alive = true;
+    fetchAnnotators(sampleId, taskId)
+      .then(data => alive && setAnnotators(Array.isArray(data?.annotators) ? data.annotators : []))
+      .catch(() => alive && setAnnotators([]));
+    if (user) {
+      fetchMyAnnotation(sampleId, taskId)
+        .then(data => alive && setMyVersion(Boolean(data?.has)))
+        .catch(() => alive && setMyVersion(false));
+    } else {
+      setMyVersion(false);
+    }
+    return () => {
+      alive = false;
+    };
+  }, [sampleId, taskId, user, editableTask]);
+
+  // 自动查看策略：登出后强制回到原始 GT；登录且未手动切换过版本时，
+  // 若有自己的版本则默认查看自己的
+  useEffect(() => {
+    if (!user) {
+      setViewAs('');
+      return;
+    }
+    if (!viewTouched) setViewAs(myVersion ? user.username : '');
+  }, [user, myVersion, viewTouched]);
+
+  /** 运行推理；viewAsOverride 供版本切换/保存后立即以新版本重跑 */
+  const handleRun = async (viewAsOverride) => {
     if (!sampleId || running) return;
     setRunning(true);
     setRunError(null);
     try {
-      const data = await runInference({ task_id: taskId, sample_id: sampleId, model });
+      const data = await runInference({
+        task_id: taskId,
+        sample_id: sampleId,
+        model,
+        view_as: viewAsOverride !== undefined ? viewAsOverride : viewAs,
+      });
       setResult(data);
       setRunId(prev => prev + 1);
     } catch (err) {
@@ -68,11 +123,47 @@ export default function Task() {
     }
   };
 
+  /** 切换查看的标注版本：立即以该版本重新推理 */
+  const handleViewChange = useCallback(
+    name => {
+      setViewTouched(true);
+      setViewAs(name);
+      handleRun(name);
+    },
+    [sampleId, model, viewAs, running],
+  );
+
+  /** 保存成功后：刷新版本列表、切到我的版本并重跑推理 */
+  const handleSaved = useCallback(() => {
+    setViewTouched(true);
+    setMyVersion(true);
+    const mine = user?.username ?? '';
+    setViewAs(mine);
+    fetchAnnotators(sampleId, taskId)
+      .then(data => setAnnotators(Array.isArray(data?.annotators) ? data.annotators : []))
+      .catch(() => {});
+    handleRun(mine);
+  }, [sampleId, taskId, user, model, viewAs, running]);
+
+  /** 删除我的版本（恢复原始 GT）后：刷新状态并切回原始 GT */
+  const handleDeleteVersion = useCallback(async () => {
+    if (!window.confirm('确定删除我的标注版本？此后展示原始 GT（可重新标注）。')) return;
+    try {
+      await deleteAnnotation(sampleId, taskId);
+    } catch (err) {
+      setRunError(err.message);
+      return;
+    }
+    setMyVersion(false);
+    handleViewChange('');
+  }, [sampleId, taskId, handleViewChange]);
+
   /** 切换样本后清除上一次推理结果 */
   const handleSampleChange = id => {
     setSampleId(id);
     setResult(null);
     setRunError(null);
+    setViewTouched(false); // 换样本后重新启用自动查看策略
   };
 
   const View = VIEWS[taskId];
@@ -130,7 +221,14 @@ export default function Task() {
               running={running}
               runId={runId}
               runError={runError}
-              onRun={handleRun}
+              onRun={() => handleRun()}
+              user={user}
+              viewing={viewAs}
+              annotators={annotators}
+              myVersion={myVersion}
+              onViewChange={handleViewChange}
+              onSaved={handleSaved}
+              onDeleteVersion={handleDeleteVersion}
             />
           ) : (
             <div className="card p-12 text-center text-sm text-slate-500">该任务的展示视图暂未实现。</div>
