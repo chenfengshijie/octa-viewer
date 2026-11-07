@@ -12,9 +12,9 @@ import {
 import Slider from '../Slider.jsx';
 
 const TOOLS = [
-  { key: 'brush', icon: Brush, label: '画笔' },
-  { key: 'eraser', icon: Eraser, label: '橡皮' },
-  { key: 'pan', icon: Hand, label: '拖动' },
+  { key: 'brush', icon: Brush, label: '画笔', title: '画笔（[ / ] 调整大小）' },
+  { key: 'eraser', icon: Eraser, label: '橡皮', title: '橡皮（[ / ] 调整大小）' },
+  { key: 'pan', icon: Hand, label: '拖动', title: '拖动平移（画笔模式下也可按住空格或用右键拖动）' },
 ];
 
 /**
@@ -106,11 +106,11 @@ export default function AnnotationCard({
         {editing && (
           <>
             <div className="flex items-center gap-1.5">
-              {TOOLS.map(({ key, icon: Icon, label }) => (
+              {TOOLS.map(({ key, icon: Icon, label, title }) => (
                 <button
                   key={key}
                   type="button"
-                  title={label}
+                  title={title}
                   onClick={() => onToolChange(key)}
                   className={`inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-lg border text-xs font-medium transition ${
                     tool === key
@@ -143,7 +143,7 @@ export default function AnnotationCard({
 
             <Slider
               label="笔刷大小"
-              min={2}
+              min={1}
               max={60}
               value={brushSize}
               onChange={onBrushSizeChange}

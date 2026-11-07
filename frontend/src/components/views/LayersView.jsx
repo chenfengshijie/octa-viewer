@@ -26,7 +26,7 @@ const curveCache = new Map();
  *   onRun: () => void,
  * }} props
  */
-export default function LayersView({ sampleId, sample, result, running, runId, runError, onRun }) {
+export default function LayersView({ task, sampleId, sample, result, running, runId, runError, onRun }) {
   const [y, setY] = useState(DEFAULT_Y);
   const [curves, setCurves] = useState(null);
   const [dims, setDims] = useState(null); // B-scan 原始像素尺寸（canvas 逻辑坐标）
@@ -103,6 +103,7 @@ export default function LayersView({ sampleId, sample, result, running, runId, r
           <ImageViewer
             baseSrc={bscanUrl}
             loading={running}
+            persistKey={task ? `${task.id}-${sampleId}` : undefined}
             stageExtra={bscanUrl && <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />}
             hint={
               result

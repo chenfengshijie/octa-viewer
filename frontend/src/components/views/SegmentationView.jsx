@@ -4,6 +4,7 @@ import { useAuth } from '../../auth.jsx';
 import AnnotationCard from '../annotation/AnnotationCard.jsx';
 import PaintLayer from '../annotation/PaintLayer.jsx';
 import { loadMaskFromUrl, useMaskEditor } from '../annotation/useMaskEditor.js';
+import useSpaceHold from '../annotation/useSpaceHold.js';
 import ClassChips from '../ClassChips.jsx';
 import ImageViewer from '../ImageViewer.jsx';
 import InferenceCard from '../InferenceCard.jsx';
@@ -68,6 +69,7 @@ export default function SegmentationView({
   const [paintClass, setPaintClass] = useState(null); // 画笔目标类别
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  const spaceHeld = useSpaceHold(editing && tool !== 'pan'); // 按住空格临时切换为平移
 
   // 每次重新推理后复位开关与透明度
   useEffect(() => {
@@ -158,7 +160,8 @@ export default function SegmentationView({
           baseSrc={sampleId ? `/data/samples/${sampleId}/proj_octa.png` : null}
           overlays={editing ? [] : overlays}
           loading={running}
-          paintMode={editing && tool !== 'pan'}
+          paintMode={editing && tool !== 'pan' && !spaceHeld}
+          persistKey={task ? `${task.id}-${sampleId}` : undefined}
           stageExtra={
             editing && (
               <PaintLayer
@@ -166,11 +169,15 @@ export default function SegmentationView({
                 entries={paintEntries}
                 version={editor.version}
                 opacity={opacity}
-                editing={!initing}
+                editing={!initing && !spaceHeld}
                 tool={tool}
                 brushSize={brushSize}
                 activeKey={paintClass}
                 editor={editor}
+                cursorColor={classDefs.find(c => c.key === paintClass)?.color}
+                onUndo={() => editor.undo()}
+                onRedo={() => editor.redo()}
+                onBrushSizeChange={setBrushSize}
               />
             )
           }
@@ -178,7 +185,7 @@ export default function SegmentationView({
             editing
               ? initing
                 ? '正在加载掩膜…'
-                : `画笔编辑中：${classDefs.find(c => c.key === paintClass)?.name ?? '-'}（滚轮缩放，切换「拖动」工具平移）`
+                : `画笔编辑中：${classDefs.find(c => c.key === paintClass)?.name ?? '-'}（滚轮缩放 · 空格/右键拖动平移 · [ ] 调笔刷）`
               : result
                 ? overlayDefs.length
                   ? undefined

@@ -5,6 +5,7 @@ import { useAuth } from '../../auth.jsx';
 import AnnotationCard from '../annotation/AnnotationCard.jsx';
 import PaintLayer from '../annotation/PaintLayer.jsx';
 import { loadMaskFromUrl, useMaskEditor } from '../annotation/useMaskEditor.js';
+import useSpaceHold from '../annotation/useSpaceHold.js';
 import ClassChips from '../ClassChips.jsx';
 import ImageViewer from '../ImageViewer.jsx';
 import InferenceCard from '../InferenceCard.jsx';
@@ -40,6 +41,7 @@ const LABEL_COLOR = '#22d3ee'; // 与 GT 标注 chip 一致的青色
  * }} props
  */
 export default function Faz3dView({
+  task,
   sampleId,
   sample,
   result,
@@ -74,6 +76,7 @@ export default function Faz3dView({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const touchedRef = useRef(new Set()); // 本次编辑会话中动过的切片号
+  const spaceHeld = useSpaceHold(editing && tool !== 'pan'); // 按住空格临时切换为平移
 
   // 每次推理后复位标注显示
   useEffect(() => {
@@ -253,7 +256,8 @@ export default function Faz3dView({
           baseSrc={slice?.input ?? null}
           overlays={labelOverlays}
           loading={running}
-          paintMode={editing && tool !== 'pan'}
+          paintMode={editing && tool !== 'pan' && !spaceHeld}
+          persistKey={task ? `${task.id}-${sampleId}` : undefined}
           stageExtra={
             editing && (
               <PaintLayer
@@ -261,12 +265,16 @@ export default function Faz3dView({
                 entries={paintEntries}
                 version={editor.version}
                 opacity={opacity}
-                editing={sliceReady}
+                editing={sliceReady && !spaceHeld}
                 tool={tool}
                 brushSize={brushSize}
                 activeKey={sliceKey}
                 editor={editor}
                 onFirstChange={() => touchedRef.current.add(n)}
+                cursorColor={LABEL_COLOR}
+                onUndo={() => editor.undo()}
+                onRedo={() => editor.redo()}
+                onBrushSizeChange={setBrushSize}
               />
             )
           }
@@ -274,7 +282,7 @@ export default function Faz3dView({
           hint={
             editing
               ? sliceReady
-                ? `编辑第 ${n} 张切片（滚轮缩放，切换「拖动」工具平移；切到其他切片会保留此切片的修改）`
+                ? `编辑第 ${n} 张切片（滚轮缩放 · 空格/右键拖动平移 · [ ] 调笔刷；切到其他切片会保留此切片的修改）`
                 : '正在加载当前切片标注…'
               : !result
                 ? '尚未运行推理 — FAZ 标注与体积指标将在推理后显示'

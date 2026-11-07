@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useOutletContext, useParams } from 'react-router-dom';
-import { AlertCircle, RefreshCw, SearchX } from 'lucide-react';
+import { AlertCircle, PanelLeftOpen, RefreshCw, SearchX } from 'lucide-react';
 import {
   deleteAnnotation,
   fetchAnnotators,
@@ -11,7 +11,7 @@ import {
 } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import ModelSelect from '../components/ModelSelect.jsx';
-import SamplePicker from '../components/SamplePicker.jsx';
+import SampleSidebar from '../components/SampleSidebar.jsx';
 import Faz3dView from '../components/views/Faz3dView.jsx';
 import FazView from '../components/views/FazView.jsx';
 import LayersView from '../components/views/LayersView.jsx';
@@ -39,6 +39,12 @@ export default function Task() {
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState(null);
   const [runId, setRunId] = useState(0); // 每次成功推理自增，驱动视图复位内部状态
+  // 左侧样本面板折叠状态（跨会话记忆）
+  const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('octa_sample_sidebar') !== 'hidden');
+  const toggleSidebar = open => {
+    setSidebarOpen(open);
+    localStorage.setItem('octa_sample_sidebar', open ? 'open' : 'hidden');
+  };
 
   // ---- 标注版本状态 ----
   const [viewAs, setViewAs] = useState(''); // '' = 原始 GT，否则用户名
@@ -183,7 +189,7 @@ export default function Task() {
   } else {
     content = (
       <>
-        {/* 顶栏 */}
+        {/* 顶栏（样本切换已移至左侧样本面板） */}
         <div className="card flex flex-col gap-4 p-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <h1 className="truncate text-xl font-bold text-slate-800">
@@ -192,13 +198,8 @@ export default function Task() {
             </h1>
             <p className="mt-1 text-sm leading-relaxed text-slate-500">{task.desc}</p>
           </div>
-          <div className="flex w-full shrink-0 flex-col gap-3 sm:flex-row lg:w-auto">
-            <div className="w-full sm:w-64">
-              <SamplePicker samples={samples ?? []} value={sampleId} onChange={handleSampleChange} disabled={!samples} />
-            </div>
-            <div className="w-full sm:w-64">
-              <ModelSelect models={models ?? []} value={model} onChange={setModel} disabled={!models} />
-            </div>
+          <div className="w-full shrink-0 sm:w-64 lg:w-auto">
+            <ModelSelect models={models ?? []} value={model} onChange={setModel} disabled={!models} />
           </div>
         </div>
 
@@ -210,29 +211,51 @@ export default function Task() {
           </div>
         )}
 
-        <div className="mt-6">
-          {View ? (
-            <View
-              key={`${taskId}-${sampleId}-${runId}`}
-              task={task}
-              sampleId={sampleId}
-              sample={sample}
-              result={result}
-              running={running}
-              runId={runId}
-              runError={runError}
-              onRun={() => handleRun()}
-              user={user}
-              viewing={viewAs}
-              annotators={annotators}
-              myVersion={myVersion}
-              onViewChange={handleViewChange}
-              onSaved={handleSaved}
-              onDeleteVersion={handleDeleteVersion}
-            />
+        {/* 左：样本面板；右：任务视图 */}
+        <div className="mt-6 flex flex-col gap-6 xl:flex-row">
+          {sidebarOpen ? (
+            <div className="w-full shrink-0 self-start xl:sticky xl:top-8 xl:max-h-[calc(100vh-4rem)] xl:w-64">
+              <SampleSidebar
+                samples={samples ?? []}
+                value={sampleId}
+                onChange={handleSampleChange}
+                onCollapse={() => toggleSidebar(false)}
+              />
+            </div>
           ) : (
-            <div className="card p-12 text-center text-sm text-slate-500">该任务的展示视图暂未实现。</div>
+            <button
+              type="button"
+              onClick={() => toggleSidebar(true)}
+              title="展开样本列表"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center self-start rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-blue-300 hover:text-blue-600"
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </button>
           )}
+          <div className="min-w-0 flex-1">
+            {View ? (
+              <View
+                key={`${taskId}-${sampleId}-${runId}`}
+                task={task}
+                sampleId={sampleId}
+                sample={sample}
+                result={result}
+                running={running}
+                runId={runId}
+                runError={runError}
+                onRun={() => handleRun()}
+                user={user}
+                viewing={viewAs}
+                annotators={annotators}
+                myVersion={myVersion}
+                onViewChange={handleViewChange}
+                onSaved={handleSaved}
+                onDeleteVersion={handleDeleteVersion}
+              />
+            ) : (
+              <div className="card p-12 text-center text-sm text-slate-500">该任务的展示视图暂未实现。</div>
+            )}
+          </div>
         </div>
       </>
     );
@@ -250,12 +273,17 @@ function PageSkeleton() {
   return (
     <div className="space-y-6">
       <div className="h-[104px] animate-pulse rounded-xl bg-slate-200/70" />
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="h-[440px] animate-pulse rounded-xl bg-slate-200/70" />
-        <div className="space-y-4">
-          {[104, 150, 150].map((height, i) => (
-            <div key={i} style={{ height }} className="animate-pulse rounded-xl bg-slate-200/70" />
-          ))}
+      <div className="flex flex-col gap-6 xl:flex-row">
+        <div className="h-72 w-full shrink-0 animate-pulse rounded-xl bg-slate-200/70 xl:w-64" />
+        <div className="min-w-0 flex-1">
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="h-[440px] animate-pulse rounded-xl bg-slate-200/70" />
+            <div className="space-y-4">
+              {[104, 150, 150].map((height, i) => (
+                <div key={i} style={{ height }} className="animate-pulse rounded-xl bg-slate-200/70" />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>

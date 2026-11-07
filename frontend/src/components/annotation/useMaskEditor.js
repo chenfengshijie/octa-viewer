@@ -26,6 +26,12 @@ export function useMaskEditor() {
     setVersion(versionRef.current);
   }, []);
 
+  /** undo/redo 回退掩膜内容时同步回退版本号（回到该操作前的版本），使「撤销到干净状态」能正确清除 dirty */
+  const setVersionTo = useCallback(v => {
+    versionRef.current = v;
+    setVersion(v);
+  }, []);
+
   const syncStacks = useCallback(
     () => setStacks({ undo: undoRef.current.length, redo: redoRef.current.length }),
     [],
@@ -57,11 +63,11 @@ export function useMaskEditor() {
 
   const getMask = useCallback(key => masksRef.current[key] ?? null, []);
 
-  /** 笔画开始：压入当前快照供撤销；同时清空重做栈 */
+  /** 笔画开始：压入当前快照（连同当时版本号）供撤销；同时清空重做栈 */
   const beginStroke = useCallback(key => {
     const cur = masksRef.current[key];
     if (!cur) return;
-    undoRef.current.push({ key, data: Uint8Array.from(cur) });
+    undoRef.current.push({ key, data: Uint8Array.from(cur), versionBefore: versionRef.current });
     if (undoRef.current.length > UNDO_LIMIT) undoRef.current.shift();
     redoRef.current = [];
     syncStacks();
@@ -88,20 +94,20 @@ export function useMaskEditor() {
   const undo = useCallback(() => {
     const entry = undoRef.current.pop();
     if (!entry) return;
-    redoRef.current.push({ key: entry.key, data: Uint8Array.from(masksRef.current[entry.key]) });
+    redoRef.current.push({ key: entry.key, data: Uint8Array.from(masksRef.current[entry.key]), versionBefore: versionRef.current });
     masksRef.current[entry.key] = entry.data;
     syncStacks();
-    bump();
-  }, [bump, syncStacks]);
+    setVersionTo(entry.versionBefore);
+  }, [setVersionTo, syncStacks]);
 
   const redo = useCallback(() => {
     const entry = redoRef.current.pop();
     if (!entry) return;
-    undoRef.current.push({ key: entry.key, data: Uint8Array.from(masksRef.current[entry.key]) });
+    undoRef.current.push({ key: entry.key, data: Uint8Array.from(masksRef.current[entry.key]), versionBefore: versionRef.current });
     masksRef.current[entry.key] = entry.data;
     syncStacks();
-    bump();
-  }, [bump, syncStacks]);
+    setVersionTo(entry.versionBefore);
+  }, [setVersionTo, syncStacks]);
 
   // version 的同步镜像已在上方维护；markClean 以当前准确版本为干净基线
   const markClean = useCallback(() => {
