@@ -39,8 +39,11 @@ export default function Task() {
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState(null);
   const [runId, setRunId] = useState(0); // 每次成功推理自增，驱动视图复位内部状态
-  // 左侧样本面板折叠状态（跨会话记忆）
-  const [sidebarOpen, setSidebarOpen] = useState(() => localStorage.getItem('octa_sample_sidebar') !== 'hidden');
+  // 左侧样本面板折叠状态（跨会话记忆；手机上首次进入默认收起，避免抽屉直接盖住影像）
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (localStorage.getItem('octa_sample_sidebar') === 'hidden') return false;
+    return window.matchMedia('(min-width: 768px)').matches;
+  });
   const toggleSidebar = open => {
     setSidebarOpen(open);
     localStorage.setItem('octa_sample_sidebar', open ? 'open' : 'hidden');
@@ -211,10 +214,10 @@ export default function Task() {
           </div>
         )}
 
-        {/* 左：样本面板；右：任务视图 */}
+        {/* 左：样本面板——桌面停靠侧栏，手机/平板窄屏为滑出抽屉 */}
         <div className="mt-6 flex flex-col gap-6 xl:flex-row">
-          {sidebarOpen ? (
-            <div className="w-full shrink-0 self-start xl:sticky xl:top-8 xl:max-h-[calc(100vh-4rem)] xl:w-64">
+          {sidebarOpen && (
+            <div className="hidden shrink-0 self-start md:block xl:sticky xl:top-8 xl:max-h-[calc(100vh-4rem)] xl:w-64">
               <SampleSidebar
                 samples={samples ?? []}
                 value={sampleId}
@@ -222,7 +225,28 @@ export default function Task() {
                 onCollapse={() => toggleSidebar(false)}
               />
             </div>
-          ) : (
+          )}
+          {sidebarOpen && (
+            <div className="fixed inset-0 z-50 md:hidden">
+              <div
+                className="absolute inset-0 bg-slate-900/40"
+                onClick={() => toggleSidebar(false)}
+                aria-hidden="true"
+              />
+              <div className="absolute inset-y-0 left-0 w-72 max-w-[85vw] overflow-y-auto bg-slate-50 p-3 shadow-xl">
+                <SampleSidebar
+                  samples={samples ?? []}
+                  value={sampleId}
+                  onChange={id => {
+                    handleSampleChange(id);
+                    toggleSidebar(false); // 手机上选完样本自动收起抽屉，直接看影像
+                  }}
+                  onCollapse={() => toggleSidebar(false)}
+                />
+              </div>
+            </div>
+          )}
+          {!sidebarOpen && (
             <button
               type="button"
               onClick={() => toggleSidebar(true)}
@@ -262,7 +286,7 @@ export default function Task() {
   }
 
   return (
-    <div className="mx-auto max-w-[1400px] px-8 py-8">
+    <div className="mx-auto max-w-[1400px] px-4 py-5 sm:px-8 sm:py-8">
       {content}
     </div>
   );

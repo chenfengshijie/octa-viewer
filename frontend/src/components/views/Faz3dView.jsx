@@ -3,9 +3,11 @@ import { Pause, Play } from 'lucide-react';
 import { fetchVolumeSlice, saveAnnotation } from '../../api.js';
 import { useAuth } from '../../auth.jsx';
 import AnnotationCard from '../annotation/AnnotationCard.jsx';
+import CanvasToolbar from '../annotation/CanvasToolbar.jsx';
 import PaintLayer from '../annotation/PaintLayer.jsx';
 import { loadMaskFromUrl, useMaskEditor } from '../annotation/useMaskEditor.js';
 import useSpaceHold from '../annotation/useSpaceHold.js';
+import { useCoarsePointer } from '../../hooks/useMediaQuery.js';
 import ClassChips from '../ClassChips.jsx';
 import ImageViewer from '../ImageViewer.jsx';
 import InferenceCard from '../InferenceCard.jsx';
@@ -77,6 +79,13 @@ export default function Faz3dView({
   const [saveError, setSaveError] = useState(null);
   const touchedRef = useRef(new Set()); // 本次编辑会话中动过的切片号
   const spaceHeld = useSpaceHold(editing && tool !== 'pan'); // 按住空格临时切换为平移
+  const coarse = useCoarsePointer(); // 触屏设备：悬浮工具栏 + 触屏版提示文案
+  const viewerAreaRef = useRef(null);
+
+  // 触屏进入编辑：自动滚到画布，让画布 + 悬浮工具栏同屏
+  useEffect(() => {
+    if (editing && coarse) viewerAreaRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [editing, coarse]);
 
   // 每次推理后复位标注显示
   useEffect(() => {
@@ -217,20 +226,41 @@ export default function Faz3dView({
   const metrics = result?.metrics ?? [];
 
   const disabledReason = !user
-    ? '请先在左下角登录或注册，即可编辑标注'
+    ? '请先登录或注册，即可编辑标注'
     : viewing && viewing !== user.username
       ? `正在查看 ${viewing} 的版本（只读），切换版本后可编辑`
       : !result
         ? '请先运行推理，加载标注后再编辑'
         : null;
 
-  // enface 小地图：proj 右下角 120px 缩略图 + 横线标当前切片位置
+  /** 按小地图纵向位置定位切片（点击 / 拖动） */
+  const minimapSeek = event => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height));
+    setPlaying(false);
+    setN(Math.min(nSlices, Math.max(1, Math.round(ratio * nSlices) || 1)));
+  };
+
+  // enface 小地图：proj 右下角缩略图 + 横线标当前切片位置；触屏端放大并上移，给工具栏让位
   const minimap = sampleId && (
     <div
-      className="absolute bottom-3 right-3 z-10 w-[120px] rounded-lg border border-white/15 bg-black/60 p-1.5 backdrop-blur-sm"
+      data-viewer-hud
+      className="absolute bottom-3 right-3 z-10 w-[120px] rounded-lg border border-white/15 bg-black/60 p-1.5 backdrop-blur-sm coarse:bottom-20 coarse:w-40"
       onPointerDown={event => event.stopPropagation()}
     >
-      <div className="relative overflow-hidden rounded-md">
+      {/* 点击 / 拖动小地图按纵向位置直接定位切片（400 张切片的主要导航方式，与 OCTA 查看器小地图同款交互） */}
+      <div
+        className="relative cursor-pointer touch-none overflow-hidden rounded-md"
+        title="拖动定位切片"
+        onPointerDown={event => {
+          event.stopPropagation();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          minimapSeek(event);
+        }}
+        onPointerMove={event => {
+          if (event.buttons & 1) minimapSeek(event);
+        }}
+      >
         <img
           src={`/data/samples/${sampleId}/proj_octa.png`}
           alt="en-face 投影小地图"
@@ -250,8 +280,8 @@ export default function Faz3dView({
 
   return (
     <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-      {/* 左：切片查看器（黑底） */}
-      <div className="h-[62vh] min-h-[420px]">
+      {/* 左：切片查看器（黑底）+ 触屏悬浮标注工具栏（含切片步进） */}
+      <div ref={viewerAreaRef} className="relative h-viewer min-h-[420px] scroll-mt-14">
         <ImageViewer
           baseSrc={slice?.input ?? null}
           overlays={labelOverlays}
@@ -282,7 +312,9 @@ export default function Faz3dView({
           hint={
             editing
               ? sliceReady
-                ? `编辑第 ${n} 张切片（滚轮缩放 · 空格/右键拖动平移 · [ ] 调笔刷；切到其他切片会保留此切片的修改）`
+                ? coarse
+                  ? `编辑第 ${n} 张切片（单指/笔绘制 · 双指平移 · 捏合缩放；切到其他切片会保留此切片的修改）`
+                  : `编辑第 ${n} 张切片（滚轮缩放 · 空格/右键拖动平移 · [ ] 调笔刷；切到其他切片会保留此切片的修改）`
                 : '正在加载当前切片标注…'
               : !result
                 ? '尚未运行推理 — FAZ 标注与体积指标将在推理后显示'
@@ -290,6 +322,21 @@ export default function Faz3dView({
           }
           emptyText={!sampleId ? '暂无样本' : loadFailed && !slice ? '切片加载失败或后端未就绪' : '切片加载中…'}
           onBaseLoad={setDims}
+        />
+        <CanvasToolbar
+          visible={editing && coarse && sliceReady}
+          tool={tool}
+          onToolChange={setTool}
+          brushSize={brushSize}
+          onBrushSizeChange={setBrushSize}
+          canUndo={editor.canUndo}
+          canRedo={editor.canRedo}
+          onUndo={() => editor.undo()}
+          onRedo={() => editor.redo()}
+          dirty={editor.dirty}
+          saving={saving}
+          onSave={handleSave}
+          slice={{ n, total: nSlices, onChange: value => { setPlaying(false); setN(value); } }}
         />
       </div>
 

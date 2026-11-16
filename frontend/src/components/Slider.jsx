@@ -25,7 +25,7 @@ export default function Slider({ label, min, max, value, onChange, format, disab
         value={value}
         disabled={disabled}
         onChange={event => onChange(Number(event.target.value))}
-        className="h-1.5 w-full cursor-pointer accent-blue-600"
+        className="h-1.5 w-full cursor-pointer accent-blue-600 coarse:h-2.5"
       />
     </div>
   );

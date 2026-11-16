@@ -109,6 +109,19 @@ export function useMaskEditor() {
     setVersionTo(entry.versionBefore);
   }, [setVersionTo, syncStacks]);
 
+  /**
+   * 取消进行中的笔画：弹出最后一笔的快照并还原，掩膜完全回到笔画前状态。
+   * 与 undo 的区别：不进重做栈（双指手势打断刚起的手指笔画时，这笔应当作没发生过）。
+   * 仅在「beginStroke 后尚无其他撤销操作」的前提下调用（PaintLayer 手势打断路径保证这一点）。
+   */
+  const cancelStroke = useCallback(() => {
+    const entry = undoRef.current.pop();
+    if (!entry) return;
+    masksRef.current[entry.key] = entry.data;
+    syncStacks();
+    setVersionTo(entry.versionBefore);
+  }, [setVersionTo, syncStacks]);
+
   // version 的同步镜像已在上方维护；markClean 以当前准确版本为干净基线
   const markClean = useCallback(() => {
     cleanVersionRef.current = versionRef.current;
@@ -134,6 +147,7 @@ export function useMaskEditor() {
     stroke,
     undo,
     redo,
+    cancelStroke,
     markClean,
     exportMask,
   };

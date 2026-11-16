@@ -65,7 +65,7 @@ export default function AnnotationCard({
 }) {
   const viewingOther = Boolean(viewing && user && viewing !== user.username);
   const disabledReason = !user
-    ? '请先在左下角登录或注册，即可编辑标注'
+    ? '请先登录或注册，即可编辑标注'
     : viewingOther
       ? `正在查看 ${viewing} 的版本（只读），切换到我的版本或原始 GT 后可编辑`
       : (extraDisabledReason ?? null);

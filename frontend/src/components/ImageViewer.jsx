@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Minus, Plus, RotateCcw } from 'lucide-react';
+import { ViewerInteractionContext } from './annotation/viewerInteraction.js';
+import { useCoarsePointer } from '../hooks/useMediaQuery.js';
 
 const MIN_SCALE = 0.5;
 const MAX_SCALE = 32; // 高倍缩放：400px 影像下单个像素约占 32 屏幕像素，可逐像素标注
@@ -9,6 +11,7 @@ const ZOOM_STEP = 1.25; // HUD 按钮 / 键盘 +/- 的步进倍率
 const PIXELATED_ABOVE = 2; // 屏幕 px / 影像 px 超过该值时启用像素化渲染（属性可继承到 img/canvas 子层）
 const MIN_VISIBLE = 80; // 平移约束：影像至少保留这么多像素在容器内
 const MINIMAP_WIDTH = 120; // 小地图宽度（px）
+const MINIMAP_WIDTH_TOUCH = 160; // 触屏端小地图宽度（px）：手指导航需要更大的可点区域
 
 /**
  * 缩放位置缓存：persistKey → { cx, cy, scale }（影像坐标下的视口中心 + 缩放倍数）。
@@ -34,6 +37,9 @@ const viewCache = new Map();
  *   onBaseLoad?: (dims: {w: number, h: number}) => void, // 底图加载完成回调（返回原始像素尺寸）
  *   paintMode?: boolean,    // 标注画笔激活：左键留给 PaintLayer（空格/中键/右键仍可平移）
  *   persistKey?: string,    // 缩放位置缓存键（如 `${task.id}-${sampleId}`）；缺省不缓存
+ *   mirror?: boolean,       // 只读镜像：无交互（pointer-events-none）、无 HUD/小地图，变换由 viewOverride 驱动
+ *   viewOverride?: {scale: number, x: number, y: number}|null, // 外部控制的视图变换（mirror 面板用）
+ *   onViewChange?: (view: {scale: number, x: number, y: number}) => void, // 内部视图变化回调（含缓存恢复）
  * }} props
  */
 export default function ImageViewer({
@@ -47,11 +53,18 @@ export default function ImageViewer({
   onBaseLoad,
   paintMode = false,
   persistKey,
+  mirror = false,
+  viewOverride = null,
+  onViewChange,
 }) {
   const containerRef = useRef(null);
   const minimapRef = useRef(null);
   const dragRef = useRef(null);
   const restoredRef = useRef(false); // persistKey 缓存是否已恢复（每次挂载只恢复一次）
+  // 触屏手势状态（全部 ref：双指判定必须在第二根手指落下的同一事件循环内同步生效，state 异步更新来不及拦住 PaintLayer）
+  const pointersRef = useRef(new Map()); // pointerId → {x, y, type, ignored}
+  const interactionRef = useRef({ twoFinger: false, penActive: false, cancelPaint: null }); // 经 context 下发给 PaintLayer
+  const coarse = useCoarsePointer(); // 主输入为触摸（手机/平板）：HUD 命中区加大、小地图放大上移
   const [box, setBox] = useState(null); // 容器内容区尺寸
   const [dims, setDims] = useState(null); // 输入影像原始像素尺寸
   const [view, setView] = useState({ scale: 1, x: 0, y: 0 });
@@ -141,8 +154,15 @@ export default function ImageViewer({
     }
   }, [persistKey, fitScale, dims, box]);
 
-  // 滚轮缩放：React 合成 wheel 事件为 passive，需手动绑定才能 preventDefault
+  // 内部视图变化上报（含 persistKey 缓存恢复），供镜像面板同步
   useEffect(() => {
+    if (mirror) return;
+    onViewChange?.(view);
+  }, [mirror, view, onViewChange]);
+
+  // 滚轮缩放：React 合成 wheel 事件为 passive，需手动绑定才能 preventDefault；镜像面板不接管
+  useEffect(() => {
+    if (mirror) return undefined;
     const el = containerRef.current;
     if (!el || !fitScale) return undefined;
     const handleWheel = event => {
@@ -160,11 +180,11 @@ export default function ImageViewer({
     };
     el.addEventListener('wheel', handleWheel, { passive: false });
     return () => el.removeEventListener('wheel', handleWheel);
-  }, [fitScale, updateView]);
+  }, [mirror, fitScale, updateView]);
 
-  // 键盘快捷键：+/- 缩放、0 适应窗口（焦点在输入框或带修饰键时不接管）
+  // 键盘快捷键：+/- 缩放、0 适应窗口（焦点在输入框或带修饰键时不接管；镜像面板不接管）
   useEffect(() => {
-    if (!interactiveGuard(baseSrc, loading) || !fitScale) return undefined;
+    if (mirror || !interactiveGuard(baseSrc, loading) || !fitScale) return undefined;
     const handleKey = event => {
       const el = event.target;
       if (el instanceof HTMLElement && isTypingTarget(el)) return;
@@ -182,11 +202,98 @@ export default function ImageViewer({
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [baseSrc, loading, fitScale, view.scale, zoomTo, resetView]);
+  }, [mirror, baseSrc, loading, fitScale, view.scale, zoomTo, resetView]);
+
+  // ---- 触屏手势（捕获阶段统一跟踪，先于 PaintLayer 的画布事件执行）----
+  /** 事件是否来自 HUD 元素（缩放按钮 / 小地图等自管交互：不参与手势、不抢指针捕获，否则会破坏按钮点击） */
+  const inHud = event => event.target instanceof Element && event.target.closest('[data-viewer-hud]') != null;
+
+  /** @param {import('react').PointerEvent} event 记录指针；第二根非手掌手指落下即进入双指手势 */
+  const handlePointerDownCapture = event => {
+    if (mirror || !baseSrc || loading || inHud(event)) return;
+    const pointers = pointersRef.current;
+    const interaction = interactionRef.current;
+    if (event.pointerType === 'pen') interaction.penActive = true;
+    // 拒触：Pencil 按下期间 touch 一律视为手掌——不绘制、不计入手势
+    const ignored = event.pointerType === 'touch' && interaction.penActive;
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, type: event.pointerType, ignored });
+    if (ignored) {
+      event.stopPropagation(); // 不下发给 PaintLayer，避免手掌误画
+      return;
+    }
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    if (pointers.size >= 2) {
+      // 双指落地 → 进入手势：同步取消刚起的手指半笔，并拦住本事件不让 PaintLayer 起新笔
+      interaction.twoFinger = true;
+      interaction.cancelPaint?.();
+      event.stopPropagation();
+    }
+  };
+
+  /** @param {import('react').PointerEvent} event 双指手势：质心位移平移 + 指间距比例缩放（锚定质心） */
+  const handlePointerMoveCapture = event => {
+    if (mirror) return;
+    const pointers = pointersRef.current;
+    const p = pointers.get(event.pointerId);
+    if (!p || p.ignored) return;
+    if (!interactionRef.current.twoFinger) {
+      p.x = event.clientX;
+      p.y = event.clientY;
+      return;
+    }
+    const active = [...pointers.entries()].filter(([, v]) => !v.ignored);
+    if (active.length < 2) return;
+    const [idA, a] = active[0];
+    const [idB, b] = active[1];
+    if (event.pointerId !== idA && event.pointerId !== idB) return; // 第三根手指不参与手势
+    const na = event.pointerId === idA ? { x: event.clientX, y: event.clientY } : { x: a.x, y: a.y };
+    const nb = event.pointerId === idB ? { x: event.clientX, y: event.clientY } : { x: b.x, y: b.y };
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const pcx = (a.x + b.x) / 2;
+    const pcy = (a.y + b.y) / 2;
+    const ncx = (na.x + nb.x) / 2;
+    const ncy = (na.y + nb.y) / 2;
+    const pdist = Math.hypot(b.x - a.x, b.y - a.y);
+    const ndist = Math.hypot(nb.x - na.x, nb.y - na.y);
+    // 指尖刚落下（距离过近）时只平移不缩放，避免指距抖动导致画面跳动
+    const zoomFactor = pdist >= 8 && ndist >= 8 ? ndist / pdist : 1;
+    // 质心相对容器中心的偏移（与滚轮缩放同一坐标系）；平移量与缩放合并进同一次 updateView
+    const kx = ncx - rect.left - rect.width / 2;
+    const ky = ncy - rect.top - rect.height / 2;
+    updateView(prev => {
+      const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, prev.scale * zoomFactor));
+      const ratio = next / prev.scale;
+      return {
+        scale: next,
+        x: kx - ratio * (kx - prev.x) + (ncx - pcx),
+        y: ky - ratio * (ky - prev.y) + (ncy - pcy),
+      };
+    });
+    a.x = na.x;
+    a.y = na.y;
+    b.x = nb.x;
+    b.y = nb.y;
+  };
+
+  /** @param {import('react').PointerEvent} event 双指手势在最后一根手指抬起后才释放，期间余指保持吞掉防误画 */
+  const handlePointerEndCapture = event => {
+    const pointers = pointersRef.current;
+    const p = pointers.get(event.pointerId);
+    pointers.delete(event.pointerId);
+    if (p?.type === 'pen') {
+      interactionRef.current.penActive = [...pointers.values()].some(v => v.type === 'pen');
+    }
+    if (interactionRef.current.twoFinger && pointers.size === 0) {
+      interactionRef.current.twoFinger = false;
+    }
+  };
 
   /** @param {import('react').PointerEvent} event 左键（非画笔模式）/ 中键 / 右键均可拖动平移 */
   const handlePointerDown = event => {
+    if (mirror) return;
     if (!baseSrc || loading) return;
+    if (interactionRef.current.twoFinger) return; // 双指手势期间不再起单指拖动
     const leftPan = event.button === 0 && !paintMode; // 画笔模式下左键留给 PaintLayer
     const auxiliary = event.button === 1 || event.button === 2;
     if (!leftPan && !auxiliary) return;
@@ -198,7 +305,7 @@ export default function ImageViewer({
   /** @param {import('react').PointerEvent} event */
   const handlePointerMove = event => {
     const drag = dragRef.current;
-    if (!drag || drag.id !== event.pointerId) return;
+    if (!drag || drag.id !== event.pointerId || interactionRef.current.twoFinger) return;
     const dx = event.clientX - drag.lastX;
     const dy = event.clientY - drag.lastY;
     drag.lastX = event.clientX;
@@ -248,27 +355,36 @@ export default function ImageViewer({
   };
 
   const interactive = Boolean(baseSrc) && !loading;
-  const pixelated = Boolean(fitScale && view.scale * fitScale >= PIXELATED_ABOVE);
+  // 镜像面板：变换由外部 viewOverride 驱动，与主视图完全同步
+  const v = viewOverride ?? view;
+  const pixelated = Boolean(fitScale && v.scale * fitScale >= PIXELATED_ABOVE);
 
   // 底图必须无条件渲染：dims 只能在 img onLoad 后获得，
   // 若等 fitScale 就绪再渲染 img 会形成死锁（无 img → 无 onLoad → 无 dims → 无 fitScale）。
   // dims 就绪前先按原始尺寸居中显示，就绪后再套用适配与缩放变换。
   return (
-    <div
-      ref={containerRef}
-      className={`relative h-full w-full select-none overflow-hidden rounded-xl bg-[#0b0f14] ${
-        paintMode
-          ? 'touch-none'
-          : interactive
-            ? 'cursor-grab touch-none active:cursor-grabbing'
-            : ''
-      }`}
-      onContextMenu={event => event.preventDefault()} // 右键用于平移
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerEnd}
-      onPointerCancel={handlePointerEnd}
-    >
+    <ViewerInteractionContext.Provider value={interactionRef.current}>
+      <div
+        ref={containerRef}
+        className={`relative h-full w-full select-none overflow-hidden rounded-xl bg-[#0b0f14] [-webkit-touch-callout:none] ${
+          mirror
+            ? 'pointer-events-none' // 只读镜像：不接管任何指针/滚轮交互
+            : paintMode
+              ? 'touch-none'
+              : interactive
+                ? 'cursor-grab touch-none active:cursor-grabbing'
+                : ''
+        }`}
+        onContextMenu={event => event.preventDefault()} // 右键用于平移
+        onPointerDownCapture={handlePointerDownCapture}
+        onPointerMoveCapture={handlePointerMoveCapture}
+        onPointerUpCapture={handlePointerEndCapture}
+        onPointerCancelCapture={handlePointerEndCapture}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+      >
       {loading ? (
         <div className="absolute inset-0 flex items-center justify-center p-8">
           <div className="w-full max-w-sm space-y-4">
@@ -285,7 +401,7 @@ export default function ImageViewer({
                 ? {
                     width: dims.w * fitScale,
                     height: dims.h * fitScale,
-                    transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+                    transform: `translate(${v.x}px, ${v.y}px) scale(${v.scale})`,
                     transformOrigin: 'center',
                     willChange: 'transform',
                     imageRendering: pixelated ? 'pixelated' : 'auto', // 可继承：底图/掩膜/canvas 高倍下均呈像素块
@@ -331,9 +447,10 @@ export default function ImageViewer({
         </div>
       )}
 
-      {/* 左上角：缩放步进 + 百分比 + 适应 + 1:1 */}
-      {interactive && (
+      {/* 左上角：缩放步进 + 百分比 + 适应 + 1:1（镜像面板不显示）；触屏端加大命中区至 ~40px */}
+      {interactive && !mirror && (
         <div
+          data-viewer-hud
           className="absolute left-3 top-3 z-10 flex items-center gap-1 rounded-lg bg-black/60 px-1.5 py-1 text-xs tabular-nums text-slate-200 backdrop-blur-sm"
           onPointerDown={event => event.stopPropagation()}
         >
@@ -341,7 +458,7 @@ export default function ImageViewer({
             type="button"
             title="缩小（-）"
             onClick={() => zoomTo(view.scale / ZOOM_STEP)}
-            className="rounded p-1 text-slate-300 transition hover:bg-white/10 hover:text-white"
+            className="rounded p-1 text-slate-300 transition hover:bg-white/10 hover:text-white coarse:p-2.5"
           >
             <Minus className="h-3.5 w-3.5" />
           </button>
@@ -350,7 +467,7 @@ export default function ImageViewer({
             type="button"
             title="放大（+）"
             onClick={() => zoomTo(view.scale * ZOOM_STEP)}
-            className="rounded p-1 text-slate-300 transition hover:bg-white/10 hover:text-white"
+            className="rounded p-1 text-slate-300 transition hover:bg-white/10 hover:text-white coarse:p-2.5"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -359,7 +476,7 @@ export default function ImageViewer({
             type="button"
             title="适应窗口（0）"
             onClick={resetView}
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-slate-300 transition hover:bg-white/10 hover:text-white"
+            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-slate-300 transition hover:bg-white/10 hover:text-white coarse:px-3 coarse:py-2"
           >
             <RotateCcw className="h-3 w-3" /> 适应
           </button>
@@ -368,17 +485,19 @@ export default function ImageViewer({
             title="按原始像素显示（1:1）"
             onClick={() => zoomTo(1 / fitScale)}
             disabled={!fitScale}
-            className="rounded px-1.5 py-0.5 text-slate-300 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+            className="rounded px-1.5 py-0.5 text-slate-300 transition hover:bg-white/10 hover:text-white disabled:opacity-40 coarse:px-3 coarse:py-2"
           >
             1:1
           </button>
         </div>
       )}
 
-      {/* 左下角：小地图导航（右下角留给各视图自带的 hudExtra，如 faz3d 的 enface 小地图） */}
-      {showMinimap && (
+      {/* 左下角：小地图导航（右下角留给各视图自带的 hudExtra，如 faz3d 的 enface 小地图；镜像面板不显示）。
+          触屏端放大尺寸并上移，给悬浮标注工具栏让位 */}
+      {showMinimap && !mirror && (
         <div
-          className="absolute bottom-3 left-3 z-10 rounded-lg border border-white/15 bg-black/60 p-1.5 backdrop-blur-sm"
+          data-viewer-hud
+          className="absolute bottom-3 left-3 z-10 rounded-lg border border-white/15 bg-black/60 p-1.5 backdrop-blur-sm coarse:bottom-20"
           onPointerDown={event => event.stopPropagation()}
         >
           <div
@@ -397,7 +516,7 @@ export default function ImageViewer({
               src={baseSrc}
               alt="导航小地图"
               draggable={false}
-              style={{ width: MINIMAP_WIDTH }}
+              style={{ width: coarse ? MINIMAP_WIDTH_TOUCH : MINIMAP_WIDTH }}
               className="block"
             />
             {viewportRect && (
@@ -418,11 +537,12 @@ export default function ImageViewer({
       {hudExtra}
 
       {hint && !loading && baseSrc && (
-        <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/60 px-3 py-1 text-xs text-slate-300 backdrop-blur-sm">
+        <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded-full bg-black/60 px-3 py-1 text-xs text-slate-300 backdrop-blur-sm coarse:bottom-20">
           {hint}
         </div>
       )}
-    </div>
+      </div>
+    </ViewerInteractionContext.Provider>
   );
 }
 
