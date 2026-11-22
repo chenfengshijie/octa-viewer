@@ -70,7 +70,7 @@ export default function CanvasToolbar({
         />
       )}
 
-      <div className="pointer-events-auto relative flex max-w-full flex-none items-center gap-0 overflow-x-auto rounded-2xl border border-white/10 bg-black/70 p-1 shadow-lg backdrop-blur-md">
+      <div className="pointer-events-auto relative flex max-w-full flex-none items-center gap-0 rounded-2xl border border-white/10 bg-black/70 p-1 shadow-lg backdrop-blur-md">
         {/* 撤销 / 重做 */}
         <button type="button" title="撤销" disabled={!canUndo} onClick={onUndo} className={iconBtn(false, !canUndo)}>
           <Undo2 className="h-5 w-5" />

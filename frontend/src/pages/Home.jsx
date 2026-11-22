@@ -18,13 +18,13 @@ export default function Home() {
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-8 px-8 py-8">
-      {/* Hero */}
-      <section className="overflow-hidden rounded-xl bg-gradient-to-br from-blue-600 via-blue-600 to-cyan-500 px-8 py-12 text-white shadow-sm">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-white/70">
+      {/* Hero（浅色卡片，与全站卡片语言一致） */}
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white px-8 py-12 shadow-sm">
+        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-blue-600">
           <Microscope className="h-4 w-4" /> OCTA-500 Dataset
         </div>
-        <h1 className="mt-3 text-3xl font-bold tracking-tight md:text-4xl">视网膜影像分析与可视化平台</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/80 md:text-base">
+        <h1 className="mt-3 text-3xl font-bold tracking-tight text-slate-900 md:text-4xl">视网膜影像分析与可视化平台</h1>
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-600 md:text-base">
           基于 OCTA-500 数据集构建的科研展示平台，覆盖血管分割、FAZ 分割、视网膜分层与 FAZ
           三维浏览四大任务，支持掩膜叠加、逐层切片浏览与实时指标量化。
         </p>
@@ -32,7 +32,7 @@ export default function Home() {
           {HIGHLIGHTS.map(({ icon: Icon, label }) => (
             <span
               key={label}
-              className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1.5 text-xs font-medium backdrop-blur-sm"
+              className="inline-flex items-center gap-1.5 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700"
             >
               <Icon className="h-3.5 w-3.5" /> {label}
             </span>
