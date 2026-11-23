@@ -7,8 +7,14 @@ export default function MetricCard({ label, value, unit }) {
     <div className="card px-4 py-3">
       <p className="text-xs text-slate-400">{label}</p>
       <p className="mt-1 text-xl font-semibold tabular-nums text-slate-800">
-        {value}
-        {unit && <span className="ml-1 text-xs font-normal text-slate-400">{unit}</span>}
+        {value == null ? (
+          <span className="text-slate-400">—</span>
+        ) : (
+          <>
+            {value}
+            {unit && <span className="ml-1 text-xs font-normal text-slate-400">{unit}</span>}
+          </>
+        )}
       </p>
     </div>
   );

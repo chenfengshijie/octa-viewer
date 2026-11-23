@@ -32,7 +32,7 @@ const LABEL_COLOR = '#22d3ee'; // 与 GT 标注 chip 一致的青色
  *   runError: string|null,
  *   onRun: () => void,
  *   user: object|null,
- *   viewing: string,            // '' = 原始 GT，否则用户名
+ *   viewing: string,            // '' = 模型输出，否则用户名
  *   annotators: Array,
  *   myVersion: boolean,
  *   onViewChange: (name: string) => void,

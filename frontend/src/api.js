@@ -23,7 +23,7 @@ async function request(path, options = {}) {
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
   let res;
   try {
-    res = await fetch(BASE + path, { ...options, headers });
+    res = await fetch(BASE + path, { ...options, headers, cache: options.cache ?? 'no-store' });
   } catch {
     throw new Error('无法连接后端服务，请确认服务已启动');
   }
@@ -47,8 +47,18 @@ export const fetchTasks = () => request('/api/tasks');
 /** 获取样本列表 @returns {Promise<{samples: Array}>} */
 export const fetchSamples = () => request('/api/samples');
 
-/** 获取模型列表 @returns {Promise<{models: Array}>} */
-export const fetchModels = () => request('/api/models');
+/**
+ * 获取模型列表；带 task_id/sample_id 时后端会把"任务+视场都匹配"的模型排在前面。
+ * @param {{task_id?: string, sample_id?: string}} [context]
+ * @returns {Promise<{models: Array, context?: object}>}
+ */
+export const fetchModels = (context = {}) => {
+  const query = new URLSearchParams();
+  if (context.task_id) query.set('task_id', context.task_id);
+  if (context.sample_id) query.set('sample_id', context.sample_id);
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return request(`/api/models${suffix}`);
+};
 
 /**
  * 运行推理
@@ -76,7 +86,7 @@ export const fetchBoundaryCurves = (sampleId, y) =>
  * 获取体数据第 n 层切片（faz3d 任务）
  * @param {string} sampleId 样本编号
  * @param {number} n 切片序号（1-400）
- * @param {string} [asUser] 查看谁的标注版本：'' = 强制原始 GT，用户名 = 其版本；
+ * @param {string} [asUser] 查看谁的标注版本：'' = 模型输出，用户名 = 其版本；
  *                          undefined = 不指定（后端回退为当前登录用户的版本）
  * @returns {Promise<{n: number, input: string, label: string|null, edited_by: string|null}>}
  */
@@ -136,6 +146,21 @@ export function saveAnnotation(sampleId, taskId, payload) {
   });
 }
 
-/** 删除我的标注版本（恢复原始 GT） */
+/** 多模型均值概率融合推理（后端缓存结果，不重复推理） */
+export function runEnsembleInference({ task_id, sample_id, models, threshold = 0.5 }) {
+  return request('/api/ensemble-infer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task_id, sample_id, models, threshold }),
+  });
+}
+
+/** 当前样本/任务下已保存的模型推理结果（只读查询，不会触发推理） */
+export function fetchModelOutputs(sampleId, taskId) {
+  const params = new URLSearchParams({ sample_id: sampleId, task_id: taskId });
+  return request(`/api/model-outputs?${params.toString()}`);
+}
+
+/** 删除我的标注版本（历史保留，此后展示模型输出） */
 export const deleteAnnotation = (sampleId, taskId) =>
   request(`/api/annotations/${sampleId}/${taskId}`, { method: 'DELETE' });

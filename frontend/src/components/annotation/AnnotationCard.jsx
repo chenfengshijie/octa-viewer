@@ -1,14 +1,4 @@
-import {
-  Brush,
-  Eraser,
-  Eye,
-  Hand,
-  Pencil,
-  Save,
-  Trash2,
-  Undo2,
-  X,
-} from 'lucide-react';
+import { Brush, Eraser, Hand, Pencil, Save, Undo2, X } from 'lucide-react';
 import Slider from '../Slider.jsx';
 
 const TOOLS = [
@@ -18,7 +8,7 @@ const TOOLS = [
 ];
 
 /**
- * 标注卡：查看版本状态与切换、进入/退出编辑、画笔工具条、保存/放弃/恢复原始 GT。
+ * 标注卡：查看版本状态与切换、进入/退出编辑、画笔工具条、保存/放弃/删除我的版本。
  * 纯控制面板；掩膜状态与保存逻辑由所属视图（SegmentationView / Faz3dView）提供。
  *
  * @param {{
@@ -28,9 +18,8 @@ const TOOLS = [
  *   brushSize: number, onBrushSizeChange: (n: number) => void,
  *   canUndo: boolean, canRedo: boolean, onUndo: () => void, onRedo: () => void,
  *   dirty: boolean, saving: boolean,
- *   onSave: () => void, onDiscard: () => void, onResetToGt: () => void,
- *   myVersion: boolean,
- *   viewing: string,             // '' = 原始 GT，否则为用户名
+ *   onSave: () => void, onDiscard: () => void,
+ *   viewing: string,             // '' = 模型输出，否则为用户名（只用于只读提示）
  *   annotators: Array<{username: string, updated_at: string, n_saves: number}>,
  *   onViewChange: (name: string) => void,
  *   targetLabel?: string,        // 当前编辑对象的说明，如「画笔类别：动脉」
@@ -54,8 +43,6 @@ export default function AnnotationCard({
   saving,
   onSave,
   onDiscard,
-  onResetToGt,
-  myVersion,
   viewing,
   annotators,
   onViewChange,
@@ -67,7 +54,7 @@ export default function AnnotationCard({
   const disabledReason = !user
     ? '请先在左下角登录或注册，即可编辑标注'
     : viewingOther
-      ? `正在查看 ${viewing} 的版本（只读），切换到我的版本或原始 GT 后可编辑`
+      ? `正在查看 ${viewing} 的版本（只读），切换回模型输出或我的版本后可编辑`
       : (extraDisabledReason ?? null);
 
   return (
@@ -98,7 +85,7 @@ export default function AnnotationCard({
           type="button"
           onClick={onToggleEditing}
           disabled={Boolean(disabledReason)}
-          className={editing ? 'btn-primary w-full' : 'h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 shadow-sm transition hover:border-blue-300 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50'}
+          className={editing ? 'btn-primary w-full' : 'inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 shadow-sm transition hover:border-blue-300 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50'}
         >
           {editing ? <><X className="h-4 w-4" /> 退出编辑</> : <><Pencil className="h-4 w-4" /> 开始标注</>}
         </button>
@@ -174,67 +161,6 @@ export default function AnnotationCard({
         )}
       </div>
 
-      {/* 我的版本管理 */}
-      {user && myVersion && !editing && (
-        <div className="flex items-center justify-between border-t border-slate-100 pt-3">
-          <p className="text-xs text-slate-500">我保存过标注版本</p>
-          <button
-            type="button"
-            onClick={onResetToGt}
-            title="删除我的版本，恢复展示原始 GT"
-            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-red-500 transition hover:bg-red-50"
-          >
-            <Trash2 className="h-3.5 w-3.5" /> 恢复原始 GT
-          </button>
-        </div>
-      )}
-
-      {/* 标注版本列表 */}
-      <div className="border-t border-slate-100 pt-3">
-        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-600">
-          <Eye className="h-3.5 w-3.5" /> 标注版本
-        </p>
-        <div className="space-y-1">
-          <VersionRow
-            name=""
-            title="原始 GT（数据自带）"
-            active={viewing === ''}
-            onClick={() => onViewChange('')}
-            mine={Boolean(user && user.username === '')}
-          />
-          {annotators.map(a => (
-            <VersionRow
-              key={a.username}
-              name={a.username}
-              title={`${a.username} 的标注 · ${a.updated_at ?? ''}${a.n_saves ? ` · ${a.n_saves} 次保存` : ''}`}
-              active={viewing === a.username}
-              onClick={() => onViewChange(a.username)}
-              mine={Boolean(user && a.username === user.username)}
-            />
-          ))}
-          {user && !myVersion && (
-            <p className="pt-1 text-[11px] leading-relaxed text-slate-400">
-              保存后，这里会出现你自己的标注版本。
-            </p>
-          )}
-        </div>
-      </div>
     </div>
-  );
-}
-
-function VersionRow({ name, title, active, onClick, mine }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs transition ${
-        active ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600 hover:bg-slate-50'
-      }`}
-    >
-      <span className="truncate">{name === '' ? '原始 GT' : name}</span>
-      {mine && <span className="ml-2 shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-600">我的</span>}
-    </button>
   );
 }
