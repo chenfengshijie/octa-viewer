@@ -61,6 +61,8 @@ export default function AnnotationCard({
   onViewChange,
   targetLabel,
   baseLabel = '原始 GT',
+  allowCleanSave = false,
+  showVersions = true,
   extraDisabledReason,
   error,
 }) {
@@ -159,7 +161,7 @@ export default function AnnotationCard({
             )}
 
             <div className="flex gap-2">
-              <button type="button" onClick={onSave} disabled={!dirty || saving} className="btn-primary h-8 flex-1 !px-2 text-xs">
+              <button type="button" onClick={onSave} disabled={(!dirty && !allowCleanSave) || saving} className="btn-primary h-8 flex-1 !px-2 text-xs">
                 <Save className="h-3.5 w-3.5" /> {saving ? '保存中…' : '保存标注'}
               </button>
               <button
@@ -191,7 +193,7 @@ export default function AnnotationCard({
       )}
 
       {/* 标注版本列表 */}
-      <div className="border-t border-slate-100 pt-3">
+      {showVersions && <div className="border-t border-slate-100 pt-3">
         <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-600">
           <Eye className="h-3.5 w-3.5" /> 标注版本
         </p>
@@ -219,7 +221,7 @@ export default function AnnotationCard({
             </p>
           )}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

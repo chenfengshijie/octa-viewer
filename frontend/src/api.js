@@ -18,7 +18,7 @@ export function setAuthToken(token) {
 export const getAuthToken = () => authToken;
 
 /** @param {string} path 相对 API 路径 @param {object} options fetch 参数 */
-async function request(path, options = {}) {
+export async function request(path, options = {}) {
   const headers = { ...(options.headers ?? {}) };
   if (authToken) headers.Authorization = `Bearer ${authToken}`;
   let res;
@@ -38,7 +38,7 @@ async function request(path, options = {}) {
     err.status = res.status;
     throw err;
   }
-  return res.json();
+  return options.responseType === 'blob' ? res.blob() : res.json();
 }
 
 /** 获取任务列表 @returns {Promise<{tasks: Array}>} */
@@ -142,11 +142,12 @@ export const deleteAnnotation = (sampleId, taskId) =>
 
 export const fetchHitRuns = () => request('/api/hit/runs');
 export const fetchHitRun = job => request(`/api/hit/runs/${encodeURIComponent(job)}`);
-export const saveHitMask = (job, taskId, { masks }) =>
+export const saveHitMask = (job, taskId, { masks }, metadata = {}) =>
   request(`/api/hit/runs/${encodeURIComponent(job)}/mine`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ mask: masks.largevessel }),
+    body: JSON.stringify({ mask: masks.largevessel, ...metadata }),
   });
-export const deleteHitMask = job =>
-  request(`/api/hit/runs/${encodeURIComponent(job)}/mine`, { method: 'DELETE' });
+export const deleteHitMask = (job, expectedHead) =>
+  request(`/api/hit/runs/${encodeURIComponent(job)}/mine` +
+    (expectedHead ? '?expected_head=' + encodeURIComponent(expectedHead) : ''), { method: 'DELETE' });

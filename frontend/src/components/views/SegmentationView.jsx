@@ -58,6 +58,7 @@ export default function SegmentationView({
   baseSrc,
   baseLabel,
   resultControls,
+  customHistory = false,
   persistMasks = saveAnnotation,
   onEditChange,
 }) {
@@ -106,6 +107,7 @@ export default function SegmentationView({
 
   /** 进入编辑：按当前展示版本的掩膜初始化工作掩膜 */
   const startEditing = async () => {
+    if (saving || initing) return;
     setEditing(true);
     onEditChange?.(true);
     setIniting(true);
@@ -130,6 +132,7 @@ export default function SegmentationView({
 
   /** 退出编辑：有未保存更改时确认放弃 */
   const stopEditing = () => {
+    if (saving || initing) return;
     if (editor.dirty && !window.confirm('有未保存的修改，确定放弃并退出编辑？')) return;
     setEditing(false);
     onEditChange?.(false);
@@ -138,14 +141,15 @@ export default function SegmentationView({
 
   /** 保存：全类别导出为 base64 PNG（清空的类别传 null = 删除该类掩膜） */
   const handleSave = async () => {
+    if (saving || initing) return;
     setSaving(true);
     setSaveError(null);
     try {
       const masks = {};
       for (const c of classDefs) masks[c.key] = editor.exportMask(c.key);
-      await persistMasks(sampleId, task.id, { masks });
+      const saved = await persistMasks(sampleId, task.id, { masks });
       editor.markClean();
-      await onSaved?.();
+      await onSaved?.(saved);
     } catch (err) {
       setSaveError(err.message);
     } finally {
@@ -186,7 +190,7 @@ export default function SegmentationView({
                 entries={paintEntries}
                 version={editor.version}
                 opacity={opacity}
-                editing={!initing && !spaceHeld}
+                editing={!initing && !saving && !spaceHeld}
                 tool={tool}
                 brushSize={brushSize}
                 activeKey={paintClass}
@@ -224,6 +228,8 @@ export default function SegmentationView({
         </>}
 
         <AnnotationCard
+          allowCleanSave={customHistory && !initing}
+          showVersions={!customHistory}
           baseLabel={baseLabel}
           user={user}
           editing={editing}
