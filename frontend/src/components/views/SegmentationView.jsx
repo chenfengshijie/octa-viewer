@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { saveAnnotation } from '../../api.js';
 import { useAuth } from '../../auth.jsx';
 import AnnotationCard from '../annotation/AnnotationCard.jsx';
+import VersionPanel from '../annotation/VersionPanel.jsx';
 import PaintLayer from '../annotation/PaintLayer.jsx';
 import { loadMaskFromUrl, useMaskEditor } from '../annotation/useMaskEditor.js';
 import useSpaceHold from '../annotation/useSpaceHold.js';
@@ -31,12 +32,12 @@ const DEFAULT_BRUSH = 16;
  *   runError: string|null,
  *   onRun: () => void,
  *   user: object|null,          // 当前登录用户
- *   viewing: string,            // 当前查看版本：'' = 原始 GT，否则用户名
+ *   viewing: string,            // 当前查看版本：'' = 模型输出，否则用户名
  *   annotators: Array,          // 标注版本列表
  *   myVersion: boolean,         // 我是否有已保存的版本
  *   onViewChange: (name: string) => void,
  *   onSaved: () => void,        // 保存成功后由 Task 刷新版本并重新推理
- *   onDeleteVersion: () => void, // 删除我的版本（恢复原始 GT），由 Task 实现并刷新
+ *   onDeleteVersion: () => void, // 删除我的标注版本，由 Task 实现并刷新
  * }} props
  */
 export default function SegmentationView({
@@ -48,6 +49,13 @@ export default function SegmentationView({
   runId,
   runError,
   onRun,
+  onRunEnsemble,
+  ensembleReady,
+  ensembleRunning,
+  ensembleCount,
+  modelOutputs,
+  activeOutput,
+  onViewModelOutput,
   user,
   viewing,
   annotators,
@@ -62,6 +70,7 @@ export default function SegmentationView({
 
   // ---- 标注编辑状态 ----
   const editor = useMaskEditor();
+  const baselineKeysRef = useRef(new Set()); // 进入编辑时有叠加层的类别（模型输出/用户版本）
   const [editing, setEditing] = useState(false);
   const [initing, setIniting] = useState(false); // 进入编辑时加载掩膜中
   const [tool, setTool] = useState('brush');
@@ -103,12 +112,19 @@ export default function SegmentationView({
     setIniting(true);
     setSaveError(null);
     editor.reset(imgDims.w, imgDims.h);
+    // 编辑基线只来自当前展示的模型输出/用户版本；GT 明确不参与编辑（视为不存在）。
+    const baselineKeys = new Set();
     await Promise.all(
       classDefs.map(async c => {
         const def = overlayDefs.find(o => o.key === c.key);
-        editor.setMask(c.key, await loadMaskFromUrl(def?.mask_url, imgDims.w, imgDims.h));
+        // Baseline membership is about having an overlay, not about loaded pixel data
+        // (loadMaskFromUrl returns a zero mask even for a missing URL).
+        if (def) baselineKeys.add(c.key);
+        const loaded = await loadMaskFromUrl(def?.mask_url, imgDims.w, imgDims.h);
+        editor.setMask(c.key, loaded ?? new Uint8Array(imgDims.w * imgDims.h));
       }),
     );
+    baselineKeysRef.current = baselineKeys;
     editor.markClean(); // 初始加载不算修改
     setPaintClass(prev => prev ?? classDefs[0]?.key ?? null);
     setIniting(false);
@@ -127,7 +143,13 @@ export default function SegmentationView({
     setSaveError(null);
     try {
       const masks = {};
-      for (const c of classDefs) masks[c.key] = editor.exportMask(c.key);
+      for (const c of classDefs) {
+        const data = editor.getMask(c.key);
+        const hasInk = Boolean(data && data.some(value => value !== 0));
+        // 没有基线且一笔未画的类别：本次保存不提交该类（不产生掩膜、也不清空）。
+        if (!baselineKeysRef.current.has(c.key) && !hasInk) continue;
+        masks[c.key] = editor.exportMask(c.key);
+      }
       await saveAnnotation(sampleId, task.id, { masks });
       editor.markClean();
       onSaved?.();
@@ -202,7 +224,17 @@ export default function SegmentationView({
       {/* 右：控制 / 指标侧栏 */}
       <aside className="space-y-4">
         <SampleInfoCard sample={sample} />
-        <InferenceCard onRun={onRun} running={running} disabled={!sampleId} error={runError} result={result} />
+        <InferenceCard
+          onRun={onRun}
+          running={running}
+          disabled={!sampleId}
+          error={runError}
+          result={result}
+          onRunEnsemble={onRunEnsemble}
+          ensembleReady={ensembleReady}
+          ensembleRunning={ensembleRunning}
+          ensembleCount={ensembleCount}
+        />
 
         <AnnotationCard
           user={user}
@@ -220,11 +252,7 @@ export default function SegmentationView({
           saving={saving}
           onSave={handleSave}
           onDiscard={() => startEditing()} // 重新从当前版本加载，即放弃修改
-          onResetToGt={onDeleteVersion}
-          myVersion={myVersion}
           viewing={viewing ?? ''}
-          annotators={annotators}
-          onViewChange={onViewChange}
           targetLabel={
             editing
               ? `画笔类别：${classDefs.find(c => c.key === paintClass)?.name ?? '-'} · 底图 ${imgDims.w}×${imgDims.h}`
@@ -232,6 +260,19 @@ export default function SegmentationView({
           }
           extraDisabledReason={disabledReason}
           error={saveError}
+        />
+
+        <VersionPanel
+          user={user}
+          myVersion={myVersion}
+          viewing={viewing ?? ''}
+          annotators={annotators}
+          modelOutputs={modelOutputs}
+          activeOutput={activeOutput}
+          onViewModelOutput={onViewModelOutput}
+          onViewChange={onViewChange}
+          onDeleteVersion={onDeleteVersion}
+          disabled={editing}
         />
 
         {/* 画笔目标类别选择（编辑态，多类别任务） */}
