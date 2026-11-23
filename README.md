@@ -114,4 +114,4 @@ MSYS_NO_PATHCONV=1 docker run -d --name octa-viewer -p 8000:8000 \
 
 ## HIT 大血管复核
 
-HIT 配对体数据由 GPU 命令行处理。将完成的批次导入 Viewer 后，从左侧「HIT 大血管复核」打开病例，即可切换浅层、深层与全层投影，查看预测并保存个人修订。[运行与导入说明](algorithm/hit/README.md)
+HIT 配对体数据由 GPU 命令行处理。将完成的批次导入 Viewer 后，从左侧「HIT 大血管复核」打开病例，即可切换投影、查看概率、保存修订并发起成员互审。批次统计支持回到参与计算的两个版本，研究导出支持按病例划分并固定已通过的版本。[运行与导入说明](algorithm/hit/README.md) · [复核工作流、研究导出与验收](docs/hit-review-plan.md)

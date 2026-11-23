@@ -12,7 +12,7 @@ python algorithm/hit/import_result.py /path/to/version/examples/200002
 
 默认目的地为 `backend/data/hit/`。Docker 部署可用 `--data-dir /path/to/mounted-data` 指定宿主机挂载的数据目录。重复导入相同结果可复用原批次；同名批次内容不一致时导入终止。旧清单缺少批次标识时，导入器根据病例、模型、参数、时间和文件摘要生成稳定标识。
 
-在 Viewer 左侧打开「HIT 大血管复核」，选择病例和批次。可切换投影底图、调节掩膜透明度、查看层边界质控图，或下载概率图与当前掩膜。登录后点击「开始标注」，使用画笔和橡皮修订并保存。刷新后默认打开自己的版本，版本列表支持查看原始预测和其他用户的修订。每人每批次保留一份当前修订，点击「恢复原始预测」可以删除自己的修订。
+在 Viewer 左侧打开「HIT 大血管复核」，选择病例和批次。可切换投影底图、调节掩膜透明度、查看层边界质控图，或下载概率图与当前掩膜。登录后点击「开始标注」，使用画笔和橡皮修订并保存。刷新后默认打开自己的版本，版本列表支持查看原始预测和其他用户的修订。每次保存生成独立版本。「恢复原始预测」取消个人当前版本，历次修订仍可从历史查阅。复核意见关联送审时的确切版本。
 
 ## 生成新批次
 
@@ -57,3 +57,16 @@ algorithm/hit/.venv/bin/python algorithm/hit/run.py \
 | 验收已有产物与发布至 Viewer | `contract.py`、`import_result.py` |
 
 病例入口和单图入口共用预测器、切块函数和结果编码。基础 SAM 网络沿用 `sam_octa/segment_anything/` 的上游布局。调整 LoRA 适配器时需保留 Q/V 层的权重键名，以兼容现有检查点。
+
+## 配对结构 OCT 与逐行质控
+
+仅有归档曲面时，Viewer 即可查看指定 Y 行的 ILM、OPL 代理曲面、BM 和层间距。若要在同一坐标系叠加结构切片，在导入批次后执行以下命令。配对声明使用相应病例的 `case_manifest.json`，新运行的命令行流程也会生成该文件。
+
+```bash
+python algorithm/hit/attach_oct.py \
+  --job octa-hit-200002-large-v1 \
+  --oct /datasets/OCTA_HIT/oct/200002.npy \
+  --case-manifest /path/to/version/examples/200002/case_manifest.json
+```
+
+命令核对病例、批次、轴序、类型和维度，再把文件与摘要写入数据卷的私有目录。Viewer 按 Y 行提供 Z × X 切片。在「分层质控」点击投影可定位一行，下载的 CSV 保留每个 X 的三条曲面深度和三组层间距，单位均为原始像素。
