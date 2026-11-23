@@ -3,15 +3,25 @@
 系统设计：陈峰 / 王越琛 / 钟洺生
 启动： python -m uvicorn app.main:app --port 8017
 """
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+from app.public_data import PublicData
 
 from app.config import DATA_DIR, FRONTEND_DIST
-from app.routers import annotations, auth, hit, infer, tasks
+from app.routers import (
+    annotations,
+    auth,
+    hit,
+    hit_measurements,
+    hit_qc,
+    hit_research,
+    hit_reviews,
+    hit_spatial,
+    infer,
+    tasks,
+)
 
 app = FastAPI(title="OCTA-500 展示平台", version="0.1.0")
 
@@ -25,10 +35,17 @@ app.add_middleware(
 
 # 数据目录静态挂载（prep_data.py 的产物；目录不存在则先建，保证启动不报错）
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/data", StaticFiles(directory=DATA_DIR), name="data")
+
+
+app.mount("/data", PublicData(directory=DATA_DIR), name="data")
 
 app.include_router(tasks.router)
 app.include_router(hit.router)
+app.include_router(hit_reviews.router)
+app.include_router(hit_qc.router)
+app.include_router(hit_spatial.router)
+app.include_router(hit_measurements.router)
+app.include_router(hit_research.router)
 app.include_router(infer.router)
 app.include_router(auth.router)
 app.include_router(annotations.router)

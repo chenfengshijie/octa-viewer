@@ -85,6 +85,18 @@ def main():
         "metrics": {"foreground_fraction": fraction},
         "outputs": FILES,
     }
+    pair = {
+        "schema_version": "1.0",
+        "case_id": args.case_id,
+        "job_id": job_id,
+        "shape": list(oct_volume.shape),
+        "dtype": str(oct_volume.dtype),
+        "axes": ["Y", "Z", "X"],
+        "fov_mm": [12, 12],
+        "oct_sha256": checksum(args.oct),
+        "parameters": asdict(parameters),
+    }
+    (job / "case_manifest.json").write_text(json.dumps(pair, indent=2) + "\n")
     temporary = job / "output_manifest.tmp"
     temporary.write_text(json.dumps(manifest, indent=2) + "\n")
     temporary.replace(job / "output_manifest.json")
