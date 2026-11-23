@@ -1,12 +1,13 @@
 # algorithm — OCTA 分割算法
 
-OCTA 单仓库中的算法部分：模型训练与推理代码。与 viewer 的接入契约由
-`backend/app/models/registry.py` 定义。
+OCTA 单仓库中的算法部分：模型训练与推理代码。在线模型的接入契约由
+`backend/app/models/registry.py` 定义。HIT 离线流程通过版本化结果清单与 Viewer 对接。
 
 ## 目录约定
 
 ```
 algorithm/
+├── hit/            # HIT 配对体数据离线推理与批次导入
 ├── predictors/     # 推理器：实现 registry 契约，供后端注册调用
 ├── train/          # 训练脚本（UNet-2D / UNet++ / IPN-V2 等）
 ├── checkpoints/    # 权重（不进 Git，网盘 / DVC 同步）

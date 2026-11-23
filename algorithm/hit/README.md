@@ -43,3 +43,17 @@ algorithm/hit/.venv/bin/python algorithm/hit/run.py \
 - OPL 为结构 OCT 梯度估计的代理曲面。模型输入按深层、浅层、全层的顺序组合，各通道共享相同的眼底坐标。
 - SAM-OCTA 使用交接版本中的 ViT-L 和秩为 4 的 LoRA，按 224 × 224 像素窗口切块。重叠区取概率均值，大于 0.8 的像素进入大血管掩膜。权重 SHA-256 为 `2ccfc006468d2bbc21ed1b73072b195ce46d964c693bef101066d95579e317a7`。
 - 预测与个人修订均使用原始 448 × 448 网格。分层曲面以体数据的 Z 轴像素为单位。SAM 模型基础代码的许可见 [LICENSE](sam_octa/segment_anything/LICENSE)。
+
+## 维护入口
+
+| 要改的行为 | 负责的代码 |
+|---|---|
+| nnU-Net 环境定位、逐张 B-scan 的输入与输出 | `layer_model.py` |
+| 连续组织段的提取、OPL 梯度估计与曲面平滑 | `surfaces.py` |
+| 从曲面生成投影、质控图与三通道输入 | `projection.py` |
+| 权重装载、点提示与图像坐标变换 | `sam_octa/predictor.py` |
+| 切块覆盖边缘、重叠区平均 | `sam_octa/tiling.py` |
+| 默认推理参数、通道顺序、输出路径与掩膜编码 | `artifacts.py` |
+| 验收已有产物与发布至 Viewer | `contract.py`、`import_result.py` |
+
+病例入口和单图入口共用预测器、切块函数和结果编码。基础 SAM 网络沿用 `sam_octa/segment_anything/` 的上游布局。调整 LoRA 适配器时需保留 Q/V 层的权重键名，以兼容现有检查点。

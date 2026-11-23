@@ -1,6 +1,8 @@
 import numpy as np
 from PIL import Image, ImageDraw
-from scipy.ndimage import gaussian_filter, median_filter
+
+from .artifacts import FILES, MODEL_CHANNELS
+from .surfaces import surfaces_from_nnunet
 
 
 def normalize(image):
@@ -9,56 +11,6 @@ def normalize(image):
         return np.zeros(image.shape, dtype=np.uint8)
     image = np.clip((image - low) / (high - low), 0, 1)
     return np.rint(image * 255).astype(np.uint8)
-
-
-def estimate_opl(oct_volume, ilm, bm):
-    height, _, width = oct_volume.shape
-    thickness = np.clip(bm - ilm, 30, 220)
-    bm = ilm + thickness
-    target = ilm + 0.58 * thickness
-    opl = np.empty_like(ilm)
-    for y in range(height):
-        scan = gaussian_filter(np.asarray(oct_volume[y], dtype=np.float32), (2.0, 1.5))
-        grad = np.abs(np.gradient(scan, axis=0))
-        for x in range(width):
-            lo = max(int(ilm[y, x] + 0.32 * thickness[y, x]), 0)
-            hi = min(int(ilm[y, x] + 0.78 * thickness[y, x]), oct_volume.shape[1])
-            if hi > lo:
-                candidate = lo + int(np.argmax(grad[lo:hi, x]))
-                opl[y, x] = 0.65 * target[y, x] + 0.35 * candidate
-            else:
-                opl[y, x] = target[y, x]
-    opl = gaussian_filter(median_filter(opl, size=(7, 17)), sigma=(1.5, 4.0))
-    margin = np.maximum(5, 0.15 * thickness)
-    opl = np.clip(opl, ilm + margin, bm - margin)
-    return opl, bm
-
-
-def surfaces_from_nnunet(oct_volume, segmentation_dir, sid):
-    height, depth, width = oct_volume.shape
-    ilm = np.empty((height, width), dtype=np.float32)
-    bm = np.empty_like(ilm)
-    x_all = np.arange(width)
-    for y in range(height):
-        path = segmentation_dir / f"{sid}-{y:04d}.png"
-        mask = np.asarray(Image.open(path)) > 0
-        if mask.shape != (depth, width):
-            raise ValueError(f"{path}: expected {(depth, width)}, got {mask.shape}")
-        valid = mask.any(axis=0)
-        if valid.sum() < 2:
-            raise ValueError(f"{path}: too few segmented columns")
-        top = np.argmax(mask, axis=0)
-        bottom = np.empty(width, dtype=np.int32)
-        for x in np.flatnonzero(valid):
-            tail = mask[top[x] :, x]
-            gaps = np.flatnonzero(~tail)
-            bottom[x] = top[x] + (int(gaps[0]) if gaps.size else tail.size)
-        ilm[y] = np.interp(x_all, x_all[valid], top[valid])
-        bm[y] = np.interp(x_all, x_all[valid], bottom[valid])
-    ilm = gaussian_filter(median_filter(ilm, size=(7, 17)), sigma=(1.5, 4.0))
-    bm = gaussian_filter(median_filter(bm, size=(7, 17)), sigma=(1.5, 4.0))
-    opl, bm = estimate_opl(oct_volume, ilm, bm)
-    return tuple(np.rint(s).astype(np.int16) for s in (ilm, opl, bm))
 
 
 def variable_projection(octa_volume, top, bottom):
@@ -92,17 +44,19 @@ def save_qc(oct_volume, surfaces, output_path):
     canvas.save(output_path)
 
 
-def project(oct_volume, octa_volume, segments, sid, case_dir):
-    case_dir.mkdir()
+def project(oct_volume, octa_volume, segments, sid, job):
+    """把解剖曲面投影到 OCTA。写出各层供复核，同时返回模型使用的 RGB 数组。"""
     surfaces = surfaces_from_nnunet(oct_volume, segments, sid)
-    ilm, opl, bm = surfaces
-    shallow = variable_projection(octa_volume, ilm, opl)
-    deep = variable_projection(octa_volume, opl, bm)
-    full = variable_projection(octa_volume, ilm, bm)
-    composite = np.stack((deep, shallow, full), axis=2)
-    Image.fromarray(deep).save(case_dir / "OCTA_OPL_BM.png")
-    Image.fromarray(shallow).save(case_dir / "OCTA_ILM_OPL.png")
-    Image.fromarray(full).save(case_dir / "OCTA_FULL.png")
-    Image.fromarray(composite).save(case_dir / "input.png")
-    np.savez_compressed(case_dir / "surfaces.npz", ilm=ilm, opl=opl, bm=bm)
-    save_qc(oct_volume, surfaces, case_dir / "oct_boundaries_qc.png")
+    planes = {
+        "shallow_projection": variable_projection(octa_volume, surfaces.ilm, surfaces.opl),
+        "deep_projection": variable_projection(octa_volume, surfaces.opl, surfaces.bm),
+        "full_projection": variable_projection(octa_volume, surfaces.ilm, surfaces.bm),
+    }
+    composite = np.stack([planes[key] for key in MODEL_CHANNELS], axis=2)
+    (job / FILES["model_input"]).parent.mkdir()
+    for key, plane in planes.items():
+        Image.fromarray(plane).save(job / FILES[key])
+    Image.fromarray(composite).save(job / FILES["model_input"])
+    np.savez_compressed(job / FILES["surfaces"], **surfaces._asdict())
+    save_qc(oct_volume, surfaces, job / FILES["boundary_qc"])
+    return composite
