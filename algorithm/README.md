@@ -31,3 +31,7 @@ algorithm/
    并挂上 predictor。
 3. 完成。`GET /api/models` 返回新模型，前端模型下拉自动亮起；
    未注册推理结果的任务继续回退 ground_truth 演示。
+
+## HIT 配对体数据
+
+`hit/` 提供 OCT 引导的 SAM-OCTA 大血管推理和已完成批次的导入工具。Viewer 通过批次标识读取离线结果。[部署与使用](hit/README.md)

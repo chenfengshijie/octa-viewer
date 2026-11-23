@@ -51,6 +51,7 @@ export default function Layout() {
         {/* 导航 */}
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
           <NavItem to="/" end icon={Home} label="首页" />
+          <NavItem to="/hit" icon={Waypoints} label="HIT 大血管复核" />
           {state.loading && (
             <div className="space-y-1 pt-1">
               {[0, 1, 2, 3].map(i => (

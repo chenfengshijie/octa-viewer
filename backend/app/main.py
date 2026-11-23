@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import DATA_DIR, FRONTEND_DIST
-from app.routers import annotations, auth, infer, tasks
+from app.routers import annotations, auth, hit, infer, tasks
 
 app = FastAPI(title="OCTA-500 展示平台", version="0.1.0")
 
@@ -28,6 +28,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/data", StaticFiles(directory=DATA_DIR), name="data")
 
 app.include_router(tasks.router)
+app.include_router(hit.router)
 app.include_router(infer.router)
 app.include_router(auth.router)
 app.include_router(annotations.router)

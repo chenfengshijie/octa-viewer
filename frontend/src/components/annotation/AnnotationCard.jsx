@@ -60,6 +60,7 @@ export default function AnnotationCard({
   annotators,
   onViewChange,
   targetLabel,
+  baseLabel = '原始 GT',
   extraDisabledReason,
   error,
 }) {
@@ -67,7 +68,7 @@ export default function AnnotationCard({
   const disabledReason = !user
     ? '请先在左下角登录或注册，即可编辑标注'
     : viewingOther
-      ? `正在查看 ${viewing} 的版本（只读），切换到我的版本或原始 GT 后可编辑`
+      ? `正在查看 ${viewing} 的版本（只读），切换到我的版本或${baseLabel}后可编辑`
       : (extraDisabledReason ?? null);
 
   return (
@@ -181,10 +182,10 @@ export default function AnnotationCard({
           <button
             type="button"
             onClick={onResetToGt}
-            title="删除我的版本，恢复展示原始 GT"
+            title={`删除我的版本，恢复展示${baseLabel}`}
             className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-red-500 transition hover:bg-red-50"
           >
-            <Trash2 className="h-3.5 w-3.5" /> 恢复原始 GT
+            <Trash2 className="h-3.5 w-3.5" /> 恢复{baseLabel}
           </button>
         </div>
       )}
@@ -196,8 +197,8 @@ export default function AnnotationCard({
         </p>
         <div className="space-y-1">
           <VersionRow
-            name=""
-            title="原始 GT（数据自带）"
+            name={baseLabel}
+            title={baseLabel}
             active={viewing === ''}
             onClick={() => onViewChange('')}
             mine={Boolean(user && user.username === '')}
@@ -233,7 +234,7 @@ function VersionRow({ name, title, active, onClick, mine }) {
         active ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600 hover:bg-slate-50'
       }`}
     >
-      <span className="truncate">{name === '' ? '原始 GT' : name}</span>
+      <span className="truncate">{name}</span>
       {mine && <span className="ml-2 shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-600">我的</span>}
     </button>
   );

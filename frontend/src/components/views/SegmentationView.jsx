@@ -55,6 +55,11 @@ export default function SegmentationView({
   onViewChange,
   onSaved,
   onDeleteVersion,
+  baseSrc,
+  baseLabel,
+  resultControls,
+  persistMasks = saveAnnotation,
+  onEditChange,
 }) {
   const [active, setActive] = useState({}); // 类别 key → 是否显示（未命中默认开启）
   const [opacity, setOpacity] = useState(DEFAULT_OPACITY);
@@ -97,20 +102,29 @@ export default function SegmentationView({
   const imgDims = dims ?? { w: 400, h: 400 };
   const paintEntries = classDefs
     .filter(c => editor.getMask(c.key))
-    .map(c => ({ key: c.key, data: editor.getMask(c.key), color: c.color }));  /** 进入编辑：按当前展示版本的掩膜初始化工作掩膜 */
+    .map(c => ({ key: c.key, data: editor.getMask(c.key), color: c.color }));
+
+  /** 进入编辑：按当前展示版本的掩膜初始化工作掩膜 */
   const startEditing = async () => {
     setEditing(true);
+    onEditChange?.(true);
     setIniting(true);
     setSaveError(null);
     editor.reset(imgDims.w, imgDims.h);
-    await Promise.all(
-      classDefs.map(async c => {
-        const def = overlayDefs.find(o => o.key === c.key);
-        editor.setMask(c.key, await loadMaskFromUrl(def?.mask_url, imgDims.w, imgDims.h));
-      }),
-    );
-    editor.markClean(); // 初始加载不算修改
-    setPaintClass(prev => prev ?? classDefs[0]?.key ?? null);
+    try {
+      await Promise.all(
+        classDefs.map(async c => {
+          const def = overlayDefs.find(o => o.key === c.key);
+          editor.setMask(c.key, await loadMaskFromUrl(def?.mask_url, imgDims.w, imgDims.h, Boolean(baseSrc)));
+        }),
+      );
+      editor.markClean();
+      setPaintClass(prev => prev ?? classDefs[0]?.key ?? null);
+    } catch (err) {
+      setSaveError(err.message);
+      setEditing(false);
+      onEditChange?.(false);
+    }
     setIniting(false);
   };
 
@@ -118,6 +132,7 @@ export default function SegmentationView({
   const stopEditing = () => {
     if (editor.dirty && !window.confirm('有未保存的修改，确定放弃并退出编辑？')) return;
     setEditing(false);
+    onEditChange?.(false);
     editor.reset(0, 0);
   };
 
@@ -128,9 +143,9 @@ export default function SegmentationView({
     try {
       const masks = {};
       for (const c of classDefs) masks[c.key] = editor.exportMask(c.key);
-      await saveAnnotation(sampleId, task.id, { masks });
+      await persistMasks(sampleId, task.id, { masks });
       editor.markClean();
-      onSaved?.();
+      await onSaved?.();
     } catch (err) {
       setSaveError(err.message);
     } finally {
@@ -148,7 +163,9 @@ export default function SegmentationView({
     ? '请先在左下角登录或注册，即可编辑标注'
     : viewing && viewing !== user.username
       ? `正在查看 ${viewing} 的版本（只读），切换版本后可编辑`
-      : !result
+      : baseSrc && !dims
+        ? '正在加载病例投影'
+        : !result
         ? '请先运行推理，加载标注后再编辑'
         : null;
 
@@ -157,7 +174,7 @@ export default function SegmentationView({
       {/* 左：影像查看器（黑底） */}
       <div className="h-[62vh] min-h-[420px]">
         <ImageViewer
-          baseSrc={sampleId ? `/data/samples/${sampleId}/proj_octa.png` : null}
+          baseSrc={baseSrc ?? (sampleId ? `/data/samples/${sampleId}/proj_octa.png` : null)}
           overlays={editing ? [] : overlays}
           loading={running}
           paintMode={editing && tool !== 'pan' && !spaceHeld}
@@ -201,10 +218,13 @@ export default function SegmentationView({
 
       {/* 右：控制 / 指标侧栏 */}
       <aside className="space-y-4">
-        <SampleInfoCard sample={sample} />
-        <InferenceCard onRun={onRun} running={running} disabled={!sampleId} error={runError} result={result} />
+        {resultControls ?? <>
+          <SampleInfoCard sample={sample} />
+          <InferenceCard onRun={onRun} running={running} disabled={!sampleId} error={runError} result={result} />
+        </>}
 
         <AnnotationCard
+          baseLabel={baseLabel}
           user={user}
           editing={editing}
           onToggleEditing={() => (editing ? stopEditing() : startEditing())}
@@ -224,7 +244,10 @@ export default function SegmentationView({
           myVersion={myVersion}
           viewing={viewing ?? ''}
           annotators={annotators}
-          onViewChange={onViewChange}
+          onViewChange={name => {
+            if (saving || initing) return;
+            if (!editing || !editor.dirty || window.confirm('放弃未保存的修改并切换版本？')) onViewChange(name);
+          }}
           targetLabel={
             editing
               ? `画笔类别：${classDefs.find(c => c.key === paintClass)?.name ?? '-'} · 底图 ${imgDims.w}×${imgDims.h}`

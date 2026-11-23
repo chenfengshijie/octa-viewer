@@ -139,3 +139,14 @@ export function saveAnnotation(sampleId, taskId, payload) {
 /** 删除我的标注版本（恢复原始 GT） */
 export const deleteAnnotation = (sampleId, taskId) =>
   request(`/api/annotations/${sampleId}/${taskId}`, { method: 'DELETE' });
+
+export const fetchHitRuns = () => request('/api/hit/runs');
+export const fetchHitRun = job => request(`/api/hit/runs/${encodeURIComponent(job)}`);
+export const saveHitMask = (job, taskId, { masks }) =>
+  request(`/api/hit/runs/${encodeURIComponent(job)}/mine`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mask: masks.largevessel }),
+  });
+export const deleteHitMask = job =>
+  request(`/api/hit/runs/${encodeURIComponent(job)}/mine`, { method: 'DELETE' });

@@ -111,3 +111,7 @@ MSYS_NO_PATHCONV=1 docker run -d --name octa-viewer -p 8000:8000 \
 1. 在 `backend/app/models/registry.py` 实现 predictor：**输入与 ground_truth 相同**（样本素材与任务参数），**输出契约一致**（血管 / FAZ mask、分层曲线或 3D 体积）。
 2. 将 predictor 注册进模型注册表，声明其支持的任务。
 3. 完成。`GET /api/models` 即返回新模型，前端模型下拉自动亮起，选中后 `/api/infer` 走真实推理；未注册推理结果的任务继续回退 ground_truth 演示。
+
+## HIT 大血管复核
+
+HIT 配对体数据由 GPU 命令行处理。将完成的批次导入 Viewer 后，从左侧「HIT 大血管复核」打开病例，即可切换浅层、深层与全层投影，查看预测并保存个人修订。[运行与导入说明](algorithm/hit/README.md)

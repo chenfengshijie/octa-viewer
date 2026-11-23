@@ -156,13 +156,17 @@ function stampCircle(mask, w, h, cx, cy, r, value) {
 }
 
 /** 从掩膜 PNG 静态 URL 加载为 Uint8Array（255/0）；失败或缺失返回全 0 掩膜 */
-export async function loadMaskFromUrl(url, w, h) {
+export async function loadMaskFromUrl(url, w, h, strict = false) {
   const data = new Uint8Array(w * h);
   if (!url) return data;
   try {
     const res = await fetch(url);
-    if (!res.ok) return data;
+    if (!res.ok) throw new Error('掩膜读取失败');
     const bitmap = await createImageBitmap(await res.blob());
+    if (strict && (bitmap.width !== w || bitmap.height !== h)) {
+      bitmap.close?.();
+      throw new Error('掩膜与投影尺寸不一致');
+    }
     const canvas = document.createElement('canvas');
     canvas.width = w;
     canvas.height = h;
@@ -173,8 +177,8 @@ export async function loadMaskFromUrl(url, w, h) {
     for (let i = 0; i < w * h; i++) {
       if ((px[i * 4] + px[i * 4 + 1] + px[i * 4 + 2]) / 3 > 127) data[i] = 255;
     }
-  } catch {
-    /* 网络/解码失败时按空掩膜处理 */
+  } catch (err) {
+    if (strict) throw err;
   }
   return data;
 }
