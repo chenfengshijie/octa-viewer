@@ -28,7 +28,7 @@ const viewCache = new Map();
  *
  * @param {{
  *   baseSrc: string|null,   // 底层输入影像 URL（决定画布几何）
- *   overlays?: Array<{key: string, src: string, visible: boolean, opacity: number}>, // 掩膜叠加层
+ *   overlays?: Array<{key: string, src: string, color: string, visible: boolean, opacity: number}>, // 灰度掩膜叠加层（按 color 着色）
  *   loading?: boolean,      // 推理运行中 → 显示骨架屏
  *   hint?: string,          // 影像下方的浮动提示文案
  *   emptyText?: string,     // 无影像时的占位文案
@@ -421,22 +421,7 @@ export default function ImageViewer({
               }}
             />
             {overlays.map(overlay => (
-              /* 掩膜是白底黑背景灰度图：用 luminance mask 以类别色着色渲染 */
-              <div
-                key={overlay.key}
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 h-full w-full"
-                style={{
-                  backgroundColor: overlay.color || '#ffffff',
-                  WebkitMaskImage: `url("${overlay.src}")`,
-                  maskImage: `url("${overlay.src}")`,
-                  WebkitMaskSize: '100% 100%',
-                  maskSize: '100% 100%',
-                  WebkitMaskMode: 'luminance',
-                  maskMode: 'luminance',
-                  opacity: overlay.visible ? overlay.opacity : 0,
-                }}
-              />
+              <MaskOverlay key={overlay.key} src={overlay.src} color={overlay.color} visible={overlay.visible} opacity={overlay.opacity} />
             ))}
             {stageExtra}
           </div>
@@ -544,6 +529,90 @@ export default function ImageViewer({
       </div>
     </ViewerInteractionContext.Provider>
   );
+}
+
+/**
+ * 灰度掩膜叠加层。掩膜 PNG 不透明（白前景 / 黑背景），这里读进 canvas 把亮度搬到 alpha，
+ * 再按类别色填充。不用 CSS mask-mode: luminance：Safari 15.4 之前不支持，会退回 alpha 遮罩，
+ * 把整块影像盖成纯色；canvas 方案各引擎表现一致。图片就绪前画布为空（不显示）。
+ */
+function MaskOverlay({ src, color, visible, opacity }) {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !src) return undefined;
+    let alive = true;
+    let objectUrl = null;
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height); // 换图（faz3d 切片）时先清掉上一层
+    // 掩膜 URL 会原地更新（保存标注后路径不变）：no-cache 让浏览器每次向服务器确认，
+    // 直接 new Image() 会命中启发式缓存、继续显示旧掩膜
+    fetch(src, { cache: 'no-cache' })
+      .then(res => (res.ok ? res.blob() : Promise.reject(new Error(`HTTP ${res.status}`))))
+      .then(blob => {
+        objectUrl = URL.createObjectURL(blob);
+        return loadImage(objectUrl);
+      })
+      .then(img => {
+        if (!alive) return;
+        const painted = colorizeMask(img, color || '#ffffff');
+        if (!painted) return;
+        canvas.width = painted.width;
+        canvas.height = painted.height;
+        canvas.getContext('2d').drawImage(painted, 0, 0);
+      })
+      .catch(() => {
+        /* 加载或解码失败：该层不显示 */
+      })
+      .finally(() => objectUrl && URL.revokeObjectURL(objectUrl));
+    return () => {
+      alive = false;
+    };
+  }, [src, color]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 h-full w-full"
+      style={{ opacity: visible ? opacity : 0 }}
+    />
+  );
+}
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('image decode failed'));
+    img.src = url;
+  });
+}
+
+/** 灰度掩膜图 -> 按指定颜色着色的画布（亮度即不透明度）；像素不可读（跨域等）时返回 null */
+function colorizeMask(img, color) {
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  if (!w || !h) return null;
+  try {
+    const work = document.createElement('canvas');
+    work.width = w;
+    work.height = h;
+    const ctx = work.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0);
+    const image = ctx.getImageData(0, 0, w, h);
+    const px = image.data;
+    for (let i = 0; i < px.length; i += 4) {
+      px[i + 3] = Math.round(0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2]);
+    }
+    ctx.putImageData(image, 0, 0);
+    ctx.globalCompositeOperation = 'source-in'; // 有掩膜处换成类别色，不透明度沿用亮度
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, w, h);
+    return work;
+  } catch {
+    return null;
+  }
 }
 
 function isTypingTarget(el) {
