@@ -8,7 +8,8 @@ import { createContext, useContext } from 'react';
  * state 异步更新来不及阻止 PaintLayer 起新笔画）：
  * - twoFinger: 双指手势进行中或刚结束仍有一指未抬起（此时 PaintLayer 不得起笔）。
  *   ImageViewer 进入手势时会同步调用 cancelPaint() 取消刚起的半笔。
- * - penActive: 任一 Apple Pencil 指针正按下（拒触：touch 既不绘制也不参与手势计数）。
+ * - penActive: 任一 Apple Pencil 指针正按下（拒触：touch 既不绘制也不参与手势计数；
+ *   Pencil 落下时已经在屏幕上的 touch 同样改判为手掌）。
  * - cancelPaint: PaintLayer 起笔时注册的取消回调；退出笔画时置 null。
  *
  * @type {import('react').Context<{twoFinger: boolean, penActive: boolean, cancelPaint: (() => void)|null}|null>}

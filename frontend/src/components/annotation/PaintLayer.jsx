@@ -14,7 +14,8 @@ const RING_LIFT = 48; // 触屏作画时光标环抬离指尖的距离（px）�
  *
  * 渲染：把各 key 的工作掩膜按类别色合成为一张 ImageData（后写的类别覆盖先写的）。
  * 分层：key === activeKey 的当前类别以全量 alpha 填充（showOutline 时外缘再描一圈提亮边），
- *       其余类别 alpha 按 DIM_RATIO 弱化，突出当前绘制目标；
+ *       其余类别 alpha 按 DIM_RATIO 弱化，突出当前绘制目标；当前类别最后合成、盖在最上层，
+ *       保证新画的笔画不会被其他类别盖成断线；
  *       canvas 级 opacity 仍是全局滑杆值（作用于所有层）。
  *       对照镜像面板（SegmentationView）只传当前类别的 entry，即可复用同一渲染。
  * 绘制：editing 时接管指针事件（左键；中/右键放行给 ImageViewer 平移），
@@ -63,7 +64,7 @@ export default function PaintLayer({
   const linkRef = useRef(null); // 触屏偏移光标的指尖连接线
   const interaction = useViewerInteraction(); // ImageViewer 的手势/拒触状态（ref 直读，同步生效）
 
-  // 掩膜合成渲染：当前类别全量 alpha + 可选描边，其余类别按 DIM_RATIO 弱化
+  // 掩膜合成渲染：其余类别按 DIM_RATIO 弱化并先画，当前类别全量 alpha + 可选描边最后画
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !dims?.w) return;
@@ -75,7 +76,11 @@ export default function PaintLayer({
     const buf = img.data;
     const dimAlpha = Math.round(255 * DIM_RATIO);
     const { w, h } = dims;
-    for (const entry of entries) {
+    // 当前类别必须最后合成：否则新画的笔画会被后画的弱化类别盖住，一条线显示成断断续续
+    const top = entries.find(entry => entry?.key === activeKey);
+    const layers = entries.filter(entry => entry !== top); // 其余类别保持原叠放顺序
+    if (top) layers.push(top);
+    for (const entry of layers) {
       if (!entry?.data) continue;
       const mask = entry.data;
       const isActive = entry.key === activeKey;
@@ -263,10 +268,10 @@ export default function PaintLayer({
               ref={ringRef}
               className="pointer-events-none fixed z-50 hidden rounded-full"
               style={{
-                borderWidth: 1.5,
+                borderWidth: 2,
                 borderStyle: tool === 'eraser' ? 'dashed' : 'solid',
                 borderColor: tool === 'eraser' ? 'rgba(255,255,255,0.85)' : cursorColor || '#ffffff',
-                boxShadow: '0 0 1px rgba(0,0,0,0.6)',
+                boxShadow: '0 0 0 1px rgba(0,0,0,0.65)', // 深色外圈：亮背景上也能看清
               }}
             />
           </>,

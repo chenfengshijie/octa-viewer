@@ -25,6 +25,7 @@ const viewCache = new Map();
  * 缩放平移：滚轮以光标为中心缩放（0.5~32x）；拖动（左键 / 中键 / 右键）平移，画笔模式下
  * 左键留给 PaintLayer，用空格按住 / 中键 / 右键平移；高倍时自动显示左下角小地图导航；
  * 影像始终至少保留 MIN_VISIBLE px 在容器内；传 persistKey 时跨重挂载保持缩放位置。
+ * 触屏：单指按当前工具绘制或平移，双指平移缩放；Apple Pencil 按下期间 touch 视为手掌（拒触）。
  *
  * @param {{
  *   baseSrc: string|null,   // 底层输入影像 URL（决定画布几何）
@@ -213,7 +214,13 @@ export default function ImageViewer({
     if (mirror || !baseSrc || loading || inHud(event)) return;
     const pointers = pointersRef.current;
     const interaction = interactionRef.current;
-    if (event.pointerType === 'pen') interaction.penActive = true;
+    if (event.pointerType === 'pen') {
+      interaction.penActive = true;
+      // 手指先于 Pencil 落下（手掌先碰到屏幕）：这些 touch 改判为手掌并取消手指的半笔。
+      // 否则 Pencil 会被当成第二根手指进入双指手势，这一笔完全画不出来
+      for (const p of pointers.values()) if (p.type === 'touch') p.ignored = true;
+      interaction.cancelPaint?.();
+    }
     // 拒触：Pencil 按下期间 touch 一律视为手掌——不绘制、不计入手势
     const ignored = event.pointerType === 'touch' && interaction.penActive;
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY, type: event.pointerType, ignored });
@@ -222,7 +229,8 @@ export default function ImageViewer({
       return;
     }
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    if (pointers.size >= 2) {
+    const activeCount = [...pointers.values()].filter(p => !p.ignored).length; // 被判为手掌的 touch 不计入
+    if (activeCount >= 2) {
       // 双指落地 → 进入手势：同步取消刚起的手指半笔，并拦住本事件不让 PaintLayer 起新笔
       interaction.twoFinger = true;
       interaction.cancelPaint?.();
